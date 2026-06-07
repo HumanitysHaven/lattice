@@ -1,18 +1,39 @@
 //! Persistence mapping for the local trust store.
 //!
-//! This module is **storage-engine-agnostic on purpose**. It defines the SQL schema
-//! (matching `docs/technical-spec.md` §4) and converts the in-memory trust types to and
-//! from plain *row* structs built only from primitive column values. The actual database
-//! (SQLCipher, encrypted at rest under an Argon2id-derived key — req `7.3`/`7.6`) is wired
-//! in a later milestone; keeping this layer pure means it stays unit-testable with no I/O
-//! and no native dependency, and the encryption boundary lives entirely below it.
+//! This module is **storage-engine-agnostic on purpose**. It defines the SQL schema and
+//! converts the in-memory trust types to and from plain *row* structs built only from
+//! primitive column values, and it can snapshot/restore a whole [`TrustGraph`]. The actual
+//! database (SQLCipher, encrypted at rest under an Argon2id-derived key — req `7.3`/`7.6`)
+//! is wired in a later milestone; keeping this layer pure means it stays unit-testable with
+//! no I/O and no native dependency, and the encryption boundary lives entirely below it.
+//!
+//! ## Scope vs. `docs/technical-spec.md` §4
+//!
+//! This layer persists exactly the state the **pure trust engine** owns and can faithfully
+//! round-trip. The trust engine is deliberately minimal (no crypto, no identity, no I/O),
+//! so columns from the spec's §4 schema that belong to other layers are intentionally
+//! **not** stored here yet; they will be added by the modules that own them:
+//!
+//! | spec §4 column | status here | owner / when |
+//! |----------------|-------------|--------------|
+//! | `contact.pubkey_sign` | deferred | `identity` (key material) |
+//! | `contact.nickname` | deferred | `identity` (local display only) |
+//! | `contact.inviter_id`, `first_seen` | deferred | app/UI metadata milestone |
+//! | `vouch.signature`, `nonce` | deferred | `identity`/crypto (verified on ingest) |
+//! | `vouch.vouch_id` | not needed | identified by `(subject, voucher, created_at)` |
+//! | `vouch.revoked_at` | stored as `revoked` (bool) | engine models revocation as a flag |
+//! | `burn_signal.signature`, `reason_code` | deferred | crypto / UI |
+//! | `burn_signal.signal_id` | not needed | identified by `(subject, origin, created_at)` |
+//!
+//! Keeping the schema in step with the engine (rather than pre-creating columns with no
+//! source of truth) avoids silent data loss and keeps the encryption boundary clean.
 //!
 //! Column-type conventions:
 //! - `ContactId` (`[u8; 16]`) ↔ `BLOB`, represented here as `Vec<u8>`.
 //! - enums ↔ short `TEXT` tags.
 //! - timestamps ↔ `INTEGER` (unix seconds).
 
-use crate::trust::{AddedVia, BurnSignal, Contact, ContactId, Status, Tier, Vouch};
+use crate::trust::{AddedVia, BurnSignal, Contact, ContactId, Status, Tier, TrustGraph, TrustParams, Vouch};
 
 /// Data-definition SQL for the local store. Applied once to a fresh encrypted database.
 pub const SCHEMA_SQL: &str = "\
@@ -194,6 +215,57 @@ impl BurnRow {
     }
 }
 
+/// A complete row-level snapshot of a [`TrustGraph`] — everything the persistence layer
+/// stores. Scoring parameters are *policy*, not data, so they are not part of the snapshot
+/// (they are supplied at [`restore`] time).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GraphRows {
+    pub contacts: Vec<ContactRow>,
+    pub vouches: Vec<VouchRow>,
+    pub burns: Vec<BurnRow>,
+}
+
+/// Convert a live [`TrustGraph`] into its row-level form, ready to be written to the store.
+///
+/// Rows are sorted into a deterministic order (contacts by id; vouches/burns by their
+/// natural keys) so repeated snapshots of an unchanged graph are byte-for-byte identical —
+/// useful for change detection and reproducible tests.
+pub fn snapshot(graph: &TrustGraph) -> GraphRows {
+    let mut contacts: Vec<ContactRow> = graph.iter_contacts().map(ContactRow::from_contact).collect();
+    contacts.sort_by(|a, b| a.contact_id.cmp(&b.contact_id));
+
+    let mut vouches: Vec<VouchRow> = graph.vouches().iter().map(VouchRow::from_vouch).collect();
+    vouches.sort_by(|a, b| {
+        (&a.subject_id, &a.voucher_id, a.created_at).cmp(&(&b.subject_id, &b.voucher_id, b.created_at))
+    });
+
+    let mut burns: Vec<BurnRow> = graph.burns().iter().map(BurnRow::from_burn).collect();
+    burns.sort_by(|a, b| {
+        (&a.subject_id, &a.origin_id, a.created_at).cmp(&(&b.subject_id, &b.origin_id, b.created_at))
+    });
+
+    GraphRows { contacts, vouches, burns }
+}
+
+/// Rebuild a [`TrustGraph`] from a row-level snapshot under the given scoring policy.
+///
+/// This restores the *stored* state only; cached tiers are loaded as-is. Call
+/// [`TrustGraph::recompute_all`] afterwards if the policy may have changed since the
+/// snapshot was taken. Returns a [`DecodeError`] if any row is malformed.
+pub fn restore(rows: &GraphRows, params: TrustParams) -> Result<TrustGraph, DecodeError> {
+    let mut graph = TrustGraph::new(params);
+    for row in &rows.contacts {
+        graph.upsert_contact(row.to_contact()?);
+    }
+    for row in &rows.vouches {
+        graph.add_vouch(row.to_vouch()?);
+    }
+    for row in &rows.burns {
+        graph.add_burn(row.to_burn()?);
+    }
+    Ok(graph)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,5 +352,80 @@ mod tests {
             manual_floor: Some(99),
         };
         assert_eq!(row.to_contact().unwrap_err(), DecodeError::BadTier);
+    }
+
+    const NOW: i64 = 2000;
+
+    /// A small but non-trivial graph: an anchor, a vouched contact, a paused+burned one,
+    /// and a revoked vouch — exercising every column and status the layer must preserve.
+    fn sample_graph() -> TrustGraph {
+        let mut g = TrustGraph::new(TrustParams::default());
+        let (anchor, s1, s2) = (id(1), id(2), id(3));
+        g.upsert_contact(Contact::new(anchor, AddedVia::Invite).with_manual_floor(Tier::Core));
+        g.upsert_contact(Contact::new(s1, AddedVia::VouchedIntro));
+        let mut paused = Contact::new(s2, AddedVia::Invite);
+        paused.status = Status::Paused;
+        g.upsert_contact(paused);
+
+        g.add_vouch(Vouch { subject: s1, voucher: anchor, weight: 3, created_at: 1000, revoked: false });
+        g.add_vouch(Vouch { subject: s2, voucher: anchor, weight: 2, created_at: 900, revoked: true });
+        g.add_burn(BurnSignal { subject: s2, origin: anchor, created_at: 1100 });
+
+        g.recompute_all(NOW);
+        g
+    }
+
+    #[test]
+    fn whole_graph_round_trips() {
+        let g = sample_graph();
+        let rows = snapshot(&g);
+        assert_eq!(rows.contacts.len(), 3);
+        assert_eq!(rows.vouches.len(), 2, "revoked vouches are retained, not dropped");
+        assert_eq!(rows.burns.len(), 1);
+
+        let restored = restore(&rows, TrustParams::default()).unwrap();
+        assert_eq!(snapshot(&restored), rows, "snapshot must be stable across a restore");
+    }
+
+    #[test]
+    fn restore_preserves_scores_and_tiers() {
+        let g = sample_graph();
+        let restored = restore(&snapshot(&g), g.params()).unwrap();
+        for c in g.iter_contacts() {
+            assert_eq!(restored.contact(&c.id).map(|rc| rc.tier), Some(c.tier), "cached tier");
+            let (a, b) = (restored.score(&c.id, NOW), g.score(&c.id, NOW));
+            assert!((a - b).abs() < 1e-9, "score mismatch after restore: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn snapshot_is_deterministic_regardless_of_insertion_order() {
+        // Two graphs with identical contents inserted in different orders must produce
+        // byte-identical snapshots (the layer sorts rows into a canonical order).
+        let mut g1 = TrustGraph::new(TrustParams::default());
+        let mut g2 = TrustGraph::new(TrustParams::default());
+        let ids = [id(5), id(2), id(9), id(1)];
+        for c in ids {
+            g1.upsert_contact(Contact::new(c, AddedVia::Invite));
+        }
+        for c in ids.iter().rev() {
+            g2.upsert_contact(Contact::new(*c, AddedVia::Invite));
+        }
+        assert_eq!(snapshot(&g1), snapshot(&g2));
+    }
+
+    #[test]
+    fn restore_rejects_malformed_rows() {
+        let rows = GraphRows {
+            contacts: vec![ContactRow {
+                contact_id: vec![1, 2, 3],
+                added_via: "invite".into(),
+                status: "active".into(),
+                tier: 0,
+                manual_floor: None,
+            }],
+            ..Default::default()
+        };
+        assert!(matches!(restore(&rows, TrustParams::default()), Err(DecodeError::BadContactId)));
     }
 }

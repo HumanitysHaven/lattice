@@ -222,6 +222,29 @@ impl TrustGraph {
         self.contacts.get(id)
     }
 
+    /// Iterate over all contacts. Order is unspecified (backed by a hash map); callers that
+    /// need determinism (e.g. persistence snapshots) should sort the result.
+    pub fn iter_contacts(&self) -> impl Iterator<Item = &Contact> {
+        self.contacts.values()
+    }
+
+    /// All vouches the user holds, including revoked ones (revocation is a flag, not a
+    /// deletion, so it survives a persistence round-trip).
+    pub fn vouches(&self) -> &[Vouch] {
+        &self.vouches
+    }
+
+    /// All burn signals the user holds.
+    pub fn burns(&self) -> &[BurnSignal] {
+        &self.burns
+    }
+
+    /// The active scoring policy. Parameters are policy, not persisted graph data, so they
+    /// are supplied when a graph is restored rather than stored in the row tables.
+    pub fn params(&self) -> TrustParams {
+        self.params
+    }
+
     /// Set (or clear) a contact's trust-anchor floor. Does not recompute tiers; call
     /// [`Self::recompute_all`] afterwards to propagate the change.
     pub fn set_manual_floor(&mut self, id: &ContactId, floor: Option<Tier>) {

@@ -20,7 +20,7 @@ milestone lists its exit criteria as testable conditions tied to threat-model re
 | 0.1 | Threat model & safety requirements | `threat-model.md` reviewed by an external human-rights/security partner |
 | 0.2 | Technical spec & architecture | `technical-spec.md` + `architecture-overview.md` reviewed; stack confirmed |
 | 0.3 | **Trust engine (pure, offline)** ✅ scaffolded | `cargo test` green; covers tiers, decay, burn, Sybil-cluster independence, revocation |
-| 0.4 | Persistence mapping ✅ scaffolded | Schema matches spec §4; row round-trip tests green; no DB engine yet |
+| 0.4 | Persistence mapping ✅ scaffolded | Row **and whole-graph** snapshot/restore round-trip green; schema scoped to the pure engine's state with §4's crypto/identity columns documented as deferred to their owning layers; no DB engine yet |
 | 0.5 | Module scaffolds (identity/messaging/transport) ✅ | Typed stubs compile; architecture visible end-to-end |
 
 **Phase 0 done when:** the three docs are partner-reviewed and the core crate builds with
