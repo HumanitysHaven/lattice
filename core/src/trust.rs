@@ -253,10 +253,7 @@ impl TrustGraph {
     /// contact (and not the subject itself).
     fn effective_vouches<'a>(&'a self, subject: &'a ContactId) -> impl Iterator<Item = &'a Vouch> {
         self.vouches.iter().filter(move |v| {
-            &v.subject == subject
-                && &v.voucher != subject
-                && !v.revoked
-                && self.active(&v.voucher)
+            &v.subject == subject && &v.voucher != subject && !v.revoked && self.active(&v.voucher)
         })
     }
 
@@ -299,8 +296,7 @@ impl TrustGraph {
         };
         vouchers.sort_unstable();
 
-        let index: HashMap<ContactId, usize> =
-            vouchers.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+        let index: HashMap<ContactId, usize> = vouchers.iter().enumerate().map(|(i, id)| (*id, i)).collect();
         let mut uf = UnionFind::new(vouchers.len());
         for v in &self.vouches {
             if v.revoked {

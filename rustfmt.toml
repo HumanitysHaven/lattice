@@ -1,0 +1,7 @@
+# Formatting is enforced in CI (`cargo fmt --check`). Only stable options are used
+# so the check runs on the stable toolchain. The width matches the codebase's
+# existing hand-formatted style.
+max_width = 110
+# Allow single-line struct literals, calls, and asserts up to `max_width` (the
+# codebase favours compact one-line forms) rather than rustfmt's narrow defaults.
+use_small_heuristics = "Max"
