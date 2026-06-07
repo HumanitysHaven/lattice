@@ -1,8 +1,9 @@
 # Rust
 /target
 **/target
-Cargo.lock
 *.rs.bk
+# Cargo.lock IS committed: this core builds into a shipped application and we want
+# reproducible, audited dependency builds (req 7.7).
 
 # Flutter / Dart (planned app/)
 app/build/

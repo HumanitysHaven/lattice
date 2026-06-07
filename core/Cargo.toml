@@ -11,5 +11,11 @@ name = "lattice_core"
 path = "src/lib.rs"
 
 [dependencies]
+# Audited cryptography only (req 7.3 — no home-grown crypto).
+ed25519-dalek = { version = "2", features = ["zeroize"] }
+bip39 = "2"
+getrandom = "0.2"
+sha2 = "0.10"
+zeroize = "1"
 
 [dev-dependencies]

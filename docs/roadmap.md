@@ -35,7 +35,7 @@ vetted technical reviewers using throwaway data.
 
 | # | Milestone | Exit criteria |
 |---|-----------|---------------|
-| 1.1 | Identity & recovery | Real Ed25519 + libsignal identity; 24-word recovery restores the same identity; no PII anywhere (`7.1`) |
+| 1.1 | Identity & recovery | Real Ed25519 signing identity ✅ + 24-word BIP39 recovery restores the same identity ✅ + sign/verify ✅; no PII anywhere ✅ (`7.1`). libsignal Double-Ratchet identity key deferred to 1.4 (reuses the same seed) |
 | 1.2 | Encrypted local store | SQLCipher wired under the persistence layer; key via Argon2id; nothing plaintext at rest (`7.3`) |
 | 1.3 | Anonymous-queue transport | SMP-style queues over Tor; relay instrumented as adversary sees only opaque fixed-size blobs; sender↔recipient unlinkable (`7.4`, `S5`) |
 | 1.4 | 1:1 messaging | libsignal Double Ratchet; disappearing by default (`7.3`) |
