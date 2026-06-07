@@ -1,0 +1,24 @@
+# Rust
+/target
+**/target
+Cargo.lock
+*.rs.bk
+
+# Flutter / Dart (planned app/)
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+.packages
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local secrets / data — must never be committed
+*.db
+*.sqlcipher
+*.key
+*.env
+secrets/

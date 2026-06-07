@@ -1,0 +1,30 @@
+//! Transport — metadata-resistant, relay-assisted delivery (req `7.4`). **STUB**.
+//!
+//! Modelled on SimpleX's SMP: messages travel through **anonymous unidirectional queues**
+//! on **untrusted relays**, run over Tor with pluggable transports. Relays see only
+//! opaque, fixed-size (padded) blobs in random queues and cannot link sender to recipient
+//! or identify users. There are no user identifiers and no identity-linked push tokens
+//! (req `S12`). Concrete relay clients land in a later milestone.
+
+/// An opaque, fixed-size (padded) blob — all a relay ever sees.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Blob(pub Vec<u8>);
+
+/// A one-directional anonymous queue address. Random per-contact; carries no identity.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct QueueAddr(pub Vec<u8>);
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum TransportError {
+    NotImplemented,
+}
+
+/// Abstract transport over untrusted relays. Implementations must pad to a fixed block
+/// size and must not attach any identifier beyond the opaque queue address. **STUB**.
+pub trait Transport {
+    /// Enqueue a blob to a send-queue. The relay cannot read or attribute it.
+    fn send(&mut self, queue: &QueueAddr, blob: &Blob) -> Result<(), TransportError>;
+
+    /// Drain any blobs waiting on one of our receive-queues.
+    fn receive(&mut self, queue: &QueueAddr) -> Result<Vec<Blob>, TransportError>;
+}

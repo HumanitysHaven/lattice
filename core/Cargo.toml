@@ -1,0 +1,15 @@
+[package]
+name = "lattice-core"
+version = "0.0.1"
+edition = "2021"
+description = "Security-critical core for a local-first web of trust for at-risk communities"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+name = "lattice_core"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
