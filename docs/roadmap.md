@@ -40,7 +40,7 @@ vetted technical reviewers using throwaway data.
 | 1.3 | Anonymous-queue transport | SMP-style queues over Tor; relay instrumented as adversary sees only opaque fixed-size blobs; sender↔recipient unlinkable (`7.4`, `S5`) |
 | 1.4 | 1:1 messaging | libsignal Double Ratchet; disappearing by default (`7.3`) |
 | 1.5 | Invitation onboarding | One-time, expiring, single-use invites via in-person QR / link; no stranger discovery exists (`7.2`, `S11`) |
-| 1.6 | Trust engine integrated | Vouch/score/tier/burn flows drive real capability gating in-app (`7.2`) |
+| 1.6 | Trust engine integrated | Core ingestion done ✅: signed vouches/burns (`vouching`) are signature-verified at the boundary, then drive score/tier/burn in the engine. Remaining: wire to real in-app capability gating once UI exists (`7.2`) |
 | 1.7 | Small-group chat | OpenMLS group gated at Tier 1+; add/remove rotates keys (`7.3`) |
 | 1.8 | Coercion & disguise | Duress vault (decoy identity), panic wipe, app disguise, auth-on-open (`7.6`) |
 

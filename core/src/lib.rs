@@ -7,10 +7,12 @@
 //!
 //! The [`trust`] engine is the first fully-implemented module: it is pure and offline and
 //! can be developed and audited in isolation with zero risk to real users. The
-//! [`persistence`] module maps it to the encrypted local store. The [`identity`],
-//! [`messaging`], and [`transport`] modules are typed scaffolds that pin down the
-//! architecture; their concrete implementations wrap audited upstream libraries and land
-//! in later milestones (see `docs/roadmap.md`).
+//! [`persistence`] module maps it to the encrypted local store. The [`identity`] module
+//! provides the on-device Ed25519 keys and BIP39 recovery, and [`vouching`] is the
+//! ingestion boundary that verifies signed vouches/burns before they reach the pure trust
+//! engine. The [`messaging`] and [`transport`] modules remain typed scaffolds whose
+//! concrete implementations wrap audited upstream libraries and land in later milestones
+//! (see `docs/roadmap.md`).
 
 #![forbid(unsafe_code)]
 
@@ -19,3 +21,4 @@ pub mod messaging;
 pub mod persistence;
 pub mod transport;
 pub mod trust;
+pub mod vouching;

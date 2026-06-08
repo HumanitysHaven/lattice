@@ -37,6 +37,13 @@ impl VerifyingKey {
         };
         vk.verify_strict(msg, &Signature::from_bytes(signature)).is_ok()
     }
+
+    /// The local, non-networkable [`ContactId`] handle derived from this public key. The
+    /// same key always maps to the same handle, which is how a received signed attestation
+    /// (which references peers by public key) is connected to local contacts.
+    pub fn local_id(&self) -> ContactId {
+        local_id_from_verifying_key(&self.0)
+    }
 }
 
 /// A BIP39 recovery phrase. User-held, offline only — never escrowed (req `7.1`). The
@@ -120,7 +127,7 @@ impl Identity {
 
     fn from_seed(seed: &[u8; SEED_LEN], nickname: &str) -> Self {
         let signing_key = SigningKey::from_bytes(seed);
-        let local_id = local_id_from_verifying_key(signing_key.verifying_key().as_bytes());
+        let local_id = VerifyingKey(signing_key.verifying_key().to_bytes()).local_id();
         Self { local_id, signing_key, nickname: nickname.to_string(), created_at: now_unix_seconds() }
     }
 
