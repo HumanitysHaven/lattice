@@ -36,7 +36,7 @@ vetted technical reviewers using throwaway data.
 | # | Milestone | Exit criteria |
 |---|-----------|---------------|
 | 1.1 | Identity & recovery | Real Ed25519 signing identity ✅ + 24-word BIP39 recovery restores the same identity ✅ + sign/verify ✅; no PII anywhere ✅ (`7.1`). libsignal Double-Ratchet identity key deferred to 1.4 (reuses the same seed) |
-| 1.2 | Encrypted local store | SQLCipher wired under the persistence layer; key via Argon2id; nothing plaintext at rest (`7.3`) |
+| 1.2 | Encrypted local store | Done ✅ (pure-Rust at-rest vault instead of SQLCipher): Argon2id-derived key + XChaCha20-Poly1305 AEAD seal of the serialized store via `at_rest`/`persistence::seal_graph`; header (incl. KDF params) authenticated; untrusted KDF params bounded; nothing plaintext at rest, wrong passphrase/tamper rejected (`7.3`). Note: deviates from spec's SQLCipher choice to keep the core pure/hermetic; a queryable encrypted DB can layer over the same key later. Duress/decoy vault is 1.8 |
 | 1.3 | Anonymous-queue transport | SMP-style queues over Tor; relay instrumented as adversary sees only opaque fixed-size blobs; sender↔recipient unlinkable (`7.4`, `S5`) |
 | 1.4 | 1:1 messaging | libsignal Double Ratchet; disappearing by default (`7.3`) |
 | 1.5 | Invitation onboarding | Core lifecycle done ✅: single-use, expiring, identity-free invite tokens (`invite`) with authoritative issuer-side validation, encode/decode for QR/link, and Tier-0 onboarding; no stranger discovery exists. Remaining: carry redemption over the anonymous-queue handshake (1.3/1.4) and QR/link UI (`7.2`, `S11`) |

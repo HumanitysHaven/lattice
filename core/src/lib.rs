@@ -7,7 +7,8 @@
 //!
 //! The [`trust`] engine is the first fully-implemented module: it is pure and offline and
 //! can be developed and audited in isolation with zero risk to real users. The
-//! [`persistence`] module maps it to the encrypted local store. The [`identity`] module
+//! [`persistence`] module maps it to row form and, via [`at_rest`] (Argon2id +
+//! XChaCha20-Poly1305), seals it encrypted on disk. The [`identity`] module
 //! provides the on-device Ed25519 keys and BIP39 recovery, [`invite`] is the
 //! invitation-only onboarding gateway (single-use, expiring, identity-free tokens), and
 //! [`vouching`] is the ingestion boundary that verifies signed vouches/burns before they
@@ -17,6 +18,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod at_rest;
 pub mod identity;
 pub mod invite;
 pub mod messaging;

@@ -256,6 +256,13 @@ Sybil-cluster check within the 1-hop horizon).
   fallback.
 - No plaintext anywhere on disk; no content in OS-level backups (`6`).
 
+> **Implementation status (core):** to keep the Rust core pure, hermetically testable, and
+> free of native dependencies, the encrypted store is currently a pure-Rust **vault**
+> (`core/src/at_rest.rs`): an **Argon2id**-derived key sealing the serialized store with
+> **XChaCha20-Poly1305** (header, including KDF parameters, authenticated; untrusted
+> parameters bounded). This satisfies `7.3`/`7.6` without SQLCipher. SQLCipher remains an
+> option if/when a *queryable* encrypted DB is needed; it would reuse the same Argon2id key.
+
 ---
 
 ## 9. Coercion & device-loss resilience (`7.6`, `S1`, `S9`)

@@ -33,6 +33,10 @@
 //! - enums ↔ short `TEXT` tags.
 //! - timestamps ↔ `INTEGER` (unix seconds).
 
+use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
+
+use crate::at_rest::{self, KdfParams, VaultError};
 use crate::trust::{AddedVia, BurnSignal, Contact, ContactId, Status, Tier, TrustGraph, TrustParams, Vouch};
 
 /// Data-definition SQL for the local store. Applied once to a fresh encrypted database.
@@ -125,7 +129,7 @@ fn tier_from_int(n: i64) -> Result<Tier, DecodeError> {
 }
 
 /// A `contact` table row as primitive column values.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContactRow {
     pub contact_id: Vec<u8>,
     pub added_via: String,
@@ -158,7 +162,7 @@ impl ContactRow {
 }
 
 /// A `vouch` table row.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VouchRow {
     pub subject_id: Vec<u8>,
     pub voucher_id: Vec<u8>,
@@ -190,7 +194,7 @@ impl VouchRow {
 }
 
 /// A `burn_signal` table row.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BurnRow {
     pub subject_id: Vec<u8>,
     pub origin_id: Vec<u8>,
@@ -218,7 +222,7 @@ impl BurnRow {
 /// A complete row-level snapshot of a [`TrustGraph`] — everything the persistence layer
 /// stores. Scoring parameters are *policy*, not data, so they are not part of the snapshot
 /// (they are supplied at [`restore`] time).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraphRows {
     pub contacts: Vec<ContactRow>,
     pub vouches: Vec<VouchRow>,
@@ -264,6 +268,29 @@ pub fn restore(rows: &GraphRows, params: TrustParams) -> Result<TrustGraph, Deco
         graph.add_burn(row.to_burn()?);
     }
     Ok(graph)
+}
+
+/// Error sealing or opening the encrypted store.
+#[derive(Debug, PartialEq, Eq)]
+pub enum StoreError {
+    /// The encrypted vault layer failed (wrong passphrase, tamper, malformed).
+    Vault(VaultError),
+    /// The decrypted bytes are not a valid serialized [`GraphRows`].
+    Codec,
+}
+
+/// Serialize a snapshot and seal it under `passphrase` for storage on disk (req `7.3`).
+/// The plaintext serialization is zeroized after sealing.
+pub fn seal_graph(passphrase: &[u8], rows: &GraphRows, params: KdfParams) -> Result<Vec<u8>, StoreError> {
+    let plaintext = Zeroizing::new(postcard::to_allocvec(rows).map_err(|_| StoreError::Codec)?);
+    at_rest::seal(passphrase, &plaintext, params).map_err(StoreError::Vault)
+}
+
+/// Open and deserialize a blob produced by [`seal_graph`]. The decrypted plaintext is
+/// zeroized after decoding.
+pub fn open_graph(passphrase: &[u8], sealed: &[u8]) -> Result<GraphRows, StoreError> {
+    let plaintext = Zeroizing::new(at_rest::open(passphrase, sealed).map_err(StoreError::Vault)?);
+    postcard::from_bytes(&plaintext).map_err(|_| StoreError::Codec)
 }
 
 #[cfg(test)]
@@ -412,6 +439,39 @@ mod tests {
             g2.upsert_contact(Contact::new(*c, AddedVia::Invite));
         }
         assert_eq!(snapshot(&g1), snapshot(&g2));
+    }
+
+    /// Cheap KDF parameters so the encrypted-store tests stay fast.
+    const TEST_KDF: KdfParams = KdfParams { m_cost_kib: 64, t_cost: 1, p_cost: 1 };
+
+    #[test]
+    fn encrypted_store_round_trips_the_whole_graph() {
+        let g = sample_graph();
+        let rows = snapshot(&g);
+
+        let sealed = seal_graph(b"open sesame", &rows, TEST_KDF).unwrap();
+        let opened = open_graph(b"open sesame", &sealed).unwrap();
+        assert_eq!(opened, rows);
+
+        // And the reopened rows still rebuild an equivalent graph.
+        let restored = restore(&opened, g.params()).unwrap();
+        assert_eq!(snapshot(&restored), rows);
+    }
+
+    #[test]
+    fn encrypted_store_rejects_a_wrong_passphrase() {
+        let rows = snapshot(&sample_graph());
+        let sealed = seal_graph(b"correct", &rows, TEST_KDF).unwrap();
+        assert_eq!(open_graph(b"incorrect", &sealed).unwrap_err(), StoreError::Vault(VaultError::Decrypt));
+    }
+
+    #[test]
+    fn encrypted_store_leaks_no_plaintext_handles() {
+        // A contact id from the graph must not appear in cleartext in the sealed blob.
+        let g = sample_graph();
+        let sealed = seal_graph(b"pw", &snapshot(&g), TEST_KDF).unwrap();
+        let needle = id(1).to_vec();
+        assert!(!sealed.windows(needle.len()).any(|w| w == needle), "contact id leaked at rest");
     }
 
     #[test]
