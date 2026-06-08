@@ -267,12 +267,24 @@ Sybil-cluster check within the 1-hop horizon).
 
 ## 9. Coercion & device-loss resilience (`7.6`, `S1`, `S9`)
 
-- **Duress vault:** two (or more) passphrases derive two independent SQLCipher keys. The
+- **Duress vault:** two (or more) passphrases derive two independent keys. The
   *duress* passphrase opens a believable **decoy identity** with innocuous contacts/chats;
   the real vault is cryptographically invisible (deniable). No flag distinguishes them on
   disk.
+  > **Implemented (`core/src/duress.rs`).** A `DeniableVault` holds a fixed number of
+  > fixed-size **compartments** ("slots") in one blob. Each slot is `salt | nonce |
+  > XChaCha20-Poly1305(len‖data‖random-pad)` — all indistinguishable from random — and
+  > unused slots are filled with random bytes, so the cleartext geometry header reveals only
+  > the *maximum* capacity, never how many slots are real. Keys are Argon2id-derived
+  > (per-slot salt) reusing the audited `at_rest` KDF/AEAD primitives. `open(passphrase)`
+  > derives against every slot and returns whichever one's AEAD tag verifies, performing a
+  > constant number of derivations and returning the same `Decrypt` error whether the
+  > passphrase is wrong or simply absent — no oracle, no timing tell for the matching slot.
+  > A decoy-only process saves by rewriting *only its own* slot, leaving the (unreadable)
+  > hidden compartment byte-for-byte intact. This satisfies `7.6` without SQLCipher.
 - **Panic action:** a configurable gesture/PIN triggers fast-hide and/or secure wipe of
-  the real vault.
+  the real vault. *(`wipe_slot`/`wipe_all` overwrite a compartment with fresh random bytes,
+  leaving it indistinguishable from a never-used slot; gesture wiring lands with the UI.)*
 - **App disguise (`7.6` SHOULD):** alternate icon/name (e.g. a calculator/notes facade);
   optional hidden launch.
 - **Minimal on-device footprint:** only the 1-hop horizon is stored, capping blast radius

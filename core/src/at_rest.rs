@@ -27,9 +27,9 @@ use zeroize::Zeroizing;
 const MAGIC: &[u8; 8] = b"LATvault";
 const VERSION: u8 = 1;
 const KDF_ARGON2ID: u8 = 1;
-const SALT_LEN: usize = 16;
-const NONCE_LEN: usize = 24;
-const KEY_LEN: usize = 32;
+pub(crate) const SALT_LEN: usize = 16;
+pub(crate) const NONCE_LEN: usize = 24;
+pub(crate) const KEY_LEN: usize = 32;
 /// Fixed header length up to and including the `salt_len` byte.
 const HEADER_FIXED: usize = 8 + 1 + 1 + 4 + 4 + 4 + 1;
 
@@ -41,7 +41,7 @@ const MAX_M_COST_KIB: u32 = 1 << 20; // 1 GiB
 const MAX_T_COST: u32 = 1 << 10;
 const MAX_P_COST: u32 = 1 << 8;
 
-fn params_within_bounds(p: &KdfParams) -> bool {
+pub(crate) fn params_within_bounds(p: &KdfParams) -> bool {
     (1..=MAX_M_COST_KIB).contains(&p.m_cost_kib)
         && (1..=MAX_T_COST).contains(&p.t_cost)
         && (1..=MAX_P_COST).contains(&p.p_cost)
@@ -94,11 +94,7 @@ pub fn seal(passphrase: &[u8], plaintext: &[u8], params: KdfParams) -> Result<Ve
 
     let key = derive_key(passphrase, &salt, params)?;
     let header = build_header(&params, &salt, &nonce);
-
-    let cipher = XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| VaultError::Kdf)?;
-    let ciphertext = cipher
-        .encrypt(XNonce::from_slice(&nonce), Payload { msg: plaintext, aad: &header })
-        .map_err(|_| VaultError::Decrypt)?;
+    let ciphertext = aead_encrypt(key.as_slice(), &nonce, &header, plaintext)?;
 
     let mut out = header;
     out.extend_from_slice(&ciphertext);
@@ -129,18 +125,18 @@ pub fn open(passphrase: &[u8], sealed: &[u8]) -> Result<Vec<u8>, VaultError> {
         return Err(VaultError::Malformed);
     }
     let salt = &sealed[HEADER_FIXED..HEADER_FIXED + salt_len];
-    let nonce = &sealed[HEADER_FIXED + salt_len..header_len];
+    let nonce: &[u8; NONCE_LEN] =
+        sealed[HEADER_FIXED + salt_len..header_len].try_into().map_err(|_| VaultError::Malformed)?;
     let header = &sealed[..header_len];
     let ciphertext = &sealed[header_len..];
 
     let key = derive_key(passphrase, salt, params)?;
-    let cipher = XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| VaultError::Kdf)?;
-    cipher
-        .decrypt(XNonce::from_slice(nonce), Payload { msg: ciphertext, aad: header })
-        .map_err(|_| VaultError::Decrypt)
+    aead_decrypt(key.as_slice(), nonce, header, ciphertext)
 }
 
-fn derive_key(
+/// Derive a 256-bit key from a passphrase and salt with Argon2id. Shared by the
+/// at-rest vault and the deniable [`crate::duress`] vault so there is one audited KDF path.
+pub(crate) fn derive_key(
     passphrase: &[u8],
     salt: &[u8],
     params: KdfParams,
@@ -151,6 +147,33 @@ fn derive_key(
     let mut key = Zeroizing::new([0u8; KEY_LEN]);
     argon.hash_password_into(passphrase, salt, key.as_mut_slice()).map_err(|_| VaultError::Kdf)?;
     Ok(key)
+}
+
+/// XChaCha20-Poly1305 seal of `plaintext` with `aad` authenticated. Shared AEAD path.
+pub(crate) fn aead_encrypt(
+    key: &[u8],
+    nonce: &[u8; NONCE_LEN],
+    aad: &[u8],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, VaultError> {
+    let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| VaultError::Kdf)?;
+    cipher
+        .encrypt(XNonce::from_slice(nonce), Payload { msg: plaintext, aad })
+        .map_err(|_| VaultError::Decrypt)
+}
+
+/// XChaCha20-Poly1305 open of `ciphertext` with `aad`. Returns [`VaultError::Decrypt`] on
+/// any authentication failure (wrong key or tamper) — no distinguishing oracle.
+pub(crate) fn aead_decrypt(
+    key: &[u8],
+    nonce: &[u8; NONCE_LEN],
+    aad: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, VaultError> {
+    let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| VaultError::Kdf)?;
+    cipher
+        .decrypt(XNonce::from_slice(nonce), Payload { msg: ciphertext, aad })
+        .map_err(|_| VaultError::Decrypt)
 }
 
 fn build_header(params: &KdfParams, salt: &[u8], nonce: &[u8]) -> Vec<u8> {

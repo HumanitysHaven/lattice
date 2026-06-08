@@ -42,7 +42,7 @@ vetted technical reviewers using throwaway data.
 | 1.5 | Invitation onboarding | Core lifecycle done ✅: single-use, expiring, identity-free invite tokens (`invite`) with authoritative issuer-side validation, encode/decode for QR/link, and Tier-0 onboarding; no stranger discovery exists. Remaining: carry redemption over the anonymous-queue handshake (1.3/1.4) and QR/link UI (`7.2`, `S11`) |
 | 1.6 | Trust engine integrated | Core ingestion done ✅: signed vouches/burns (`vouching`) are signature-verified at the boundary, then drive score/tier/burn in the engine. Remaining: wire to real in-app capability gating once UI exists (`7.2`) |
 | 1.7 | Small-group chat | OpenMLS group gated at Tier 1+; add/remove rotates keys (`7.3`) |
-| 1.8 | Coercion & disguise | Duress vault (decoy identity), panic wipe, app disguise, auth-on-open (`7.6`) |
+| 1.8 | Coercion & disguise | Core deniable vault done ✅ (`duress`): multiple independently-keyed, indistinguishable compartments in one blob (decoy + real passphrases), Argon2id + XChaCha20-Poly1305 reusing the audited `at_rest` primitives; constant blob size and constant-work `open` so the count of real compartments is unprovable; panic wipe (`wipe_slot`/`wipe_all`) leaves a slot indistinguishable from never-used; auth-on-open intrinsic (`7.6`, `S1`, `S9`). Remaining: app disguise (alt icon/name) + panic-gesture wiring land with the UI |
 
 **Phase 1 done when:** all MVP MUST requirements in `threat-model.md` §7 pass the §12 test
 plan, including the adversarial-relay metadata tests and duress-vault indistinguishability.
