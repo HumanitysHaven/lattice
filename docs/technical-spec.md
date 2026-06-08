@@ -242,6 +242,13 @@ Sybil-cluster check within the 1-hop horizon).
 - **Run over Tor** with pluggable transports/bridges where the network is hostile.
 - **Fixed-size (16KB) blocks**, batching/delay, and optional **cover traffic** to resist
   timing correlation (`S5`).
+  > **Implemented (`core/src/framing.rs`).** The length-hiding kernel is done and pure:
+  > every payload is padded into a fixed `BLOCK_SIZE` (16 KiB) block (length prefix + payload
+  > + zero pad) and sealed with XChaCha20-Poly1305 (reusing the audited `at_rest` AEAD), so
+  > every blob is exactly `SEALED_LEN` bytes — a relay sees only equal-sized opaque blobs
+  > with no length signal. Padding is inside the AEAD (confidential + authenticated); wrong
+  > key, tampering, and wrong-size blobs are rejected. The per-message key comes from the
+  > ratchet (1.4); the Tor/SMP queue plumbing and cover traffic layer on top.
 - **No identity-linked push tokens** (`S12`): wake via background fetch/poll or P2P,
   never APNs/FCM identifiers tied to a user.
 

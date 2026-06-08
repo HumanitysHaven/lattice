@@ -7,6 +7,10 @@
 //! (req `S12`). Concrete relay clients land in a later milestone.
 
 /// An opaque, fixed-size (padded) blob — all a relay ever sees.
+///
+/// The length-hiding padding and AEAD sealing that make a blob opaque and uniform are
+/// implemented in [`crate::framing`] (pure and audited); a concrete [`Transport`] only moves
+/// these blobs and must never inspect or resize them.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Blob(pub Vec<u8>);
 

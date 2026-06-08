@@ -14,14 +14,17 @@
 //! provides the on-device Ed25519 keys and BIP39 recovery, [`invite`] is the
 //! invitation-only onboarding gateway (single-use, expiring, identity-free tokens), and
 //! [`vouching`] is the ingestion boundary that verifies signed vouches/burns before they
-//! reach the pure trust engine. The [`messaging`] and [`transport`] modules remain typed scaffolds whose
-//! concrete implementations wrap audited upstream libraries and land in later milestones
-//! (see `docs/roadmap.md`).
+//! reach the pure trust engine. The [`framing`] module is the metadata-resistance kernel of
+//! the transport: it pads every payload into a fixed-size block and seals it so an untrusted
+//! relay sees only equal-sized opaque blobs. The [`messaging`] and [`transport`] modules
+//! remain typed scaffolds whose concrete implementations (libsignal, OpenMLS, Tor/SMP queues)
+//! wrap audited upstream libraries and land in later milestones (see `docs/roadmap.md`).
 
 #![forbid(unsafe_code)]
 
 pub mod at_rest;
 pub mod duress;
+pub mod framing;
 pub mod identity;
 pub mod invite;
 pub mod messaging;
