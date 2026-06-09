@@ -35,8 +35,6 @@
 use vodozemac::olm::{Account, OlmMessage, SessionConfig};
 use vodozemac::Curve25519PublicKey;
 
-use crate::trust::ContactId;
-
 /// A locally-generated, non-networkable message handle.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct MessageId(pub [u8; 16]);
@@ -58,7 +56,8 @@ impl PlainMessage {
     }
 
     /// Encode to the bytes that are handed to the ratchet: `has_ttl(1) || ttl(4) || body`.
-    fn encode(&self) -> Vec<u8> {
+    /// Shared with [`crate::group`] so 1:1 and group messages carry the TTL identically.
+    pub(crate) fn encode(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(5 + self.body.len());
         out.push(u8::from(self.ttl_secs.is_some()));
         out.extend_from_slice(&self.ttl_secs.unwrap_or(0).to_be_bytes());
@@ -66,7 +65,7 @@ impl PlainMessage {
         out
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, MessagingError> {
+    pub(crate) fn decode(bytes: &[u8]) -> Result<Self, MessagingError> {
         if bytes.len() < 5 {
             return Err(MessagingError::Malformed);
         }
@@ -248,15 +247,6 @@ pub trait OneToOneSession {
     /// Encrypt and advance the ratchet, returning the wire bytes to pad and send.
     fn encrypt(&mut self, msg: &PlainMessage) -> Result<Vec<u8>, MessagingError>;
     /// Decrypt a wire message received from the peer.
-    fn decrypt(&mut self, ciphertext: &[u8]) -> Result<PlainMessage, MessagingError>;
-}
-
-/// A group session (OpenMLS / RFC 9420). Membership changes produce Commit/Welcome
-/// messages and rotate keys (post-compromise security). **STUB** — milestone 1.7.
-pub trait GroupSession {
-    fn add_member(&mut self, member: ContactId) -> Result<(), MessagingError>;
-    fn remove_member(&mut self, member: ContactId) -> Result<(), MessagingError>;
-    fn encrypt(&mut self, msg: &PlainMessage) -> Result<Vec<u8>, MessagingError>;
     fn decrypt(&mut self, ciphertext: &[u8]) -> Result<PlainMessage, MessagingError>;
 }
 

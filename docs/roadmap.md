@@ -41,7 +41,7 @@ vetted technical reviewers using throwaway data.
 | 1.4 | 1:1 messaging | Done ✅ (`messaging`): forward-secret 1:1 channels over the audited Olm Double Ratchet (`vodozemac`), with pre-key handshake, ratchet advance, out-of-order tolerance, and disappearing TTL carried **inside** the encrypted payload (`7.3`). Wire = `type ‖ olm-ciphertext`, padded to a fixed block (`framing::pad`) so the relay sees equal-sized opaque blobs. **Deviation:** spec named libsignal, which is not consumable as a hermetic Rust crate (git-only, AGPL, BoringSSL); vodozemac is the audited (Least Authority), pure-Rust, crates.io Double Ratchet and also gives us Megolm for 1.7. Remaining: bind the Olm handshake to the verified invite/identity, and derive the Olm account from the same on-device seed as the signing identity |
 | 1.5 | Invitation onboarding | Core lifecycle done ✅: single-use, expiring, identity-free invite tokens (`invite`) with authoritative issuer-side validation, encode/decode for QR/link, and Tier-0 onboarding; no stranger discovery exists. Remaining: carry redemption over the anonymous-queue handshake (1.3/1.4) and QR/link UI (`7.2`, `S11`) |
 | 1.6 | Trust engine integrated | Core ingestion done ✅: signed vouches/burns (`vouching`) are signature-verified at the boundary, then drive score/tier/burn in the engine. Remaining: wire to real in-app capability gating once UI exists (`7.2`) |
-| 1.7 | Small-group chat | OpenMLS group gated at Tier 1+; add/remove rotates keys (`7.3`) |
+| 1.7 | Small-group chat | Core done ✅ (`group`): tier-gated small-group E2EE over the audited **Megolm** group ratchet (`vodozemac`). Each member has one outbound sender ratchet + an inbound ratchet per other member; a message is encrypted once and fanned out. `add_member` enforces the Tier-1+ (`group_chat`) gate; `remove_member` **rotates** the outbound ratchet so the removed member loses access (post-compromise security), and a later-added member can't read prior history (forward secrecy on join). Disappearing TTL rides inside the payload as in 1:1; sender keys distribute over the 1:1 channels (1.4) and ciphertext pads (`framing`) onto the queue (1.3). **Deviation:** spec named OpenMLS (RFC 9420); Megolm gives the same group-E2EE shape for the MVP from the crate we already depend on and is independently audited, keeping the build pure/hermetic — MLS's tree-based CGKA is a worthwhile later upgrade for large/dynamic groups. Remaining: membership-change choreography over the queue + MLS upgrade for scale (`7.3`) |
 | 1.8 | Coercion & disguise | Core deniable vault done ✅ (`duress`): multiple independently-keyed, indistinguishable compartments in one blob (decoy + real passphrases), Argon2id + XChaCha20-Poly1305 reusing the audited `at_rest` primitives; constant blob size and constant-work `open` so the count of real compartments is unprovable; panic wipe (`wipe_slot`/`wipe_all`) leaves a slot indistinguishable from never-used; auth-on-open intrinsic (`7.6`, `S1`, `S9`). Remaining: app disguise (alt icon/name) + panic-gesture wiring land with the UI |
 
 **Phase 1 done when:** all MVP MUST requirements in `threat-model.md` §7 pass the §12 test
@@ -99,13 +99,15 @@ The safety-critical core is implemented and tested in isolation: the trust engin
 persistence + encryption at rest (0.4 / 1.2), identity & recovery (1.1), signed vouches/burns
 (1.6 ingestion), invitation onboarding (1.5 lifecycle), the duress / deniable vault (1.8
 core), the transport framing kernel + authenticated simplex-queue protocol (1.3 core), and
-forward-secret 1:1 messaging over the Olm Double Ratchet (1.4). An end-to-end integration
-harness (`core/tests/end_to_end.rs`) composes these through the public API against the
-reference untrusted relay and asserts the emergent properties (forward-secret delivery over
-an authenticated queue, equal-sized opaque blobs even for the handshake, no plaintext at the
+forward-secret 1:1 messaging over the Olm Double Ratchet (1.4), and tier-gated small-group
+chat over the Megolm group ratchet (1.7 core). An end-to-end integration harness
+(`core/tests/end_to_end.rs`) composes these through the public API against the reference
+untrusted relay and asserts the emergent properties (forward-secret delivery over an
+authenticated queue, equal-sized opaque blobs even for the handshake, no plaintext at the
 relay, write-only senders that cannot read, vouch-driven capability unlocks). What remains in
 Phase 1 is the **networked relay client** (the queue commands shipped over Tor — the one
-piece needing live network/native I/O) and group messaging (1.7).
+piece needing live network/native I/O), plus the membership-change choreography for groups
+over the queue.
 
 ## Immediate next actions
 
@@ -114,4 +116,7 @@ piece needing live network/native I/O) and group messaging (1.7).
    approach; run-our-own vs. public relays; Flutter-over-Rust FFI vs. native screens).
 3. Build the networked relay client (1.3 remainder): implement the `queue::Relay` trait over
    Tor (per-queue connections + SMP 2-hop routing), shipping the existing signed commands;
-   add adversarial-relay unlinkability tests. Then OpenMLS groups (1.7, on vodozemac's Megolm).
+   add adversarial-relay unlinkability tests.
+4. Choreograph group membership changes over the queue (1.7 remainder): distribute
+   `SenderKeyDistribution`s on the 1:1 channels and fan `GroupCiphertext` out to members'
+   queues; evaluate an MLS (RFC 9420) upgrade once groups need to scale.

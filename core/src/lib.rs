@@ -21,14 +21,16 @@
 //! [`queue`] module is the SMP-style anonymous simplex-queue protocol — identity-free random
 //! queues with recipient/sender capability separation and authenticated commands — with a
 //! reference relay that enforces the rules; the [`transport`] module is the lower-level opaque
-//! blob pipe a networked relay client (Tor) will implement. Group messaging (OpenMLS) is
-//! milestone 1.7 (see `docs/roadmap.md`).
+//! blob pipe a networked relay client (Tor) will implement. The [`group`] module provides
+//! tier-gated small-group messaging over the audited Megolm group ratchet (`vodozemac`), with
+//! key rotation on member removal.
 
 #![forbid(unsafe_code)]
 
 pub mod at_rest;
 pub mod duress;
 pub mod framing;
+pub mod group;
 pub mod identity;
 pub mod invite;
 pub mod messaging;

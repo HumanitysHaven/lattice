@@ -52,7 +52,7 @@ fixed-size blobs in anonymous queues (`A2`, `S4`); the network layer hides metad
 | Security-critical core | **Rust**, compiled to Android (JNI/UniFFI), iOS (UniFFI), desktop | One audited codebase; memory safety; no GC timing leaks | Kotlin/Swift per-platform (2x audit surface) |
 | UI shell | **Flutter** (Dart) over the Rust core via FFI | One cross-platform UI; cheap-Android friendly (`7.8`) | React Native; native per-OS |
 | 1:1 crypto | **Olm Double Ratchet via `vodozemac`** (audited, pure Rust) — *deviation from spec's libsignal; see §7.1* | Audited, forward secrecy + post-compromise (`7.3`); hermetic crates.io build | libsignal (git-only/AGPL/BoringSSL — not hermetic); custom (rejected — `7.3` forbids own crypto) |
-| Group crypto | **OpenMLS** (RFC 9420) | Audited scalable group E2EE, async joins via KeyPackages | Sender-keys (weaker PCS) |
+| Group crypto | **Megolm group ratchet via `vodozemac`** for the MVP — *deviation from spec's OpenMLS; see §7.2* (OpenMLS/RFC 9420 later for scale) | Audited, hermetic (same crate as 1:1); sender ratchets with FS + key rotation (PCS) on membership change | OpenMLS now (heavier second dep); custom (rejected — `7.3`) |
 | Transport / delivery | **SimpleX SMP model** (anonymous unidirectional queues + 2-hop private routing), run over **Tor** w/ pluggable transports | No user identifiers; relays can't link sender↔recipient; censorship-resistant (`A1`,`A2`,`A4`,`S2`,`S4`) | Matrix (server-side graph — rejected); raw P2P (NAT/availability pain) |
 | Local storage | **SQLCipher** (AES-256), key from **Argon2id** | Encrypted at rest (`7.3`); duress vaults (`7.6`) | Plain SQLite + file crypto (more error-prone) |
 | Optional zk layer | **Semaphore v4** per-community groups | Anonymous vouch/vote without identity (`6` optional B) | This repo's Compact/Midnight demo (port ideas, not base) |
@@ -241,7 +241,20 @@ Sybil-cluster check within the 1-hop horizon).
   > work; it does not block the MVP.
 
 ### 7.2 Groups / communities
-- **OpenMLS (RFC 9420)**: scalable group E2EE; async joins via KeyPackages published to
+- **Implemented (MVP): Megolm group ratchet** (`vodozemac`, module `group`). Each member has
+  one outbound sender ratchet plus an inbound ratchet per other member; a message is encrypted
+  once and fanned out. `add_member` enforces the Tier-1+ (`group_chat`) gate; `remove_member`
+  rotates the outbound ratchet (PCS on removal); a later-added member is given the sender key at
+  its current index, so it cannot read prior history (FS on join). Sender keys distribute over
+  the 1:1 channels (§7.3 messaging); ciphertext pads (`framing`) onto the queue (§7.4).
+  > **Deviation from the named OpenMLS.** OpenMLS (RFC 9420) gives tree-based continuous group
+  > key agreement that scales to large/dynamic groups, but it is a second, heavier dependency.
+  > Megolm delivers the same group-E2EE shape we need for the MVP (sender ratchets, FS, key
+  > rotation on membership change) from the crate we already use for 1:1 and that is
+  > independently audited (Least Authority), keeping the build pure/hermetic. An MLS upgrade is
+  > worthwhile once groups must scale; the `group` API (sender-key distribution + ciphertext
+  > envelopes) is the seam where that swap would happen.
+- **Later (RFC 9420 / OpenMLS)**: scalable group E2EE; async joins via KeyPackages published to
   a relay; membership changes via Commit/Welcome. PCS on every key update.
 - Group membership is gated by tier (§6). A community admin (Tier 3) curates joins.
 
@@ -355,7 +368,7 @@ in the mixnet/Tor transport to avoid IP/timing leaks (`S2`, `S5`).
 5. Burn/revocation gossip to 1-hop (`7.2`).
 6. Anonymous-queue transport over Tor (SMP model) (`7.4`).
 7. Encrypted store + auth-on-open + duress vault + app disguise (`7.6`).
-8. Small-group chat (OpenMLS) gated at Tier 1+ (`7.2`).
+8. Small-group chat (Megolm group ratchet; OpenMLS later) gated at Tier 1+ (`7.2`).
 
 **Deferred (LATER):** funds/mutual aid (legal review first, `S10`); the zk layer (§10);
 cover-traffic tuning; multi-device.
