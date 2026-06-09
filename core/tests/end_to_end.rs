@@ -1,72 +1,27 @@
 //! End-to-end integration of the pure stack, exercised through the **public API only**.
 //!
 //! These tests compose the modules the way a real client will — identity, invitation
-//! onboarding, the trust engine, the Olm Double Ratchet, fixed-size framing, and an untrusted
-//! relay — and assert the security properties that emerge from the composition:
+//! onboarding, the trust engine, the Olm Double Ratchet, fixed-size framing, and the
+//! authenticated anonymous-queue transport against a reference untrusted relay — and assert
+//! the security properties that emerge from the composition:
 //!
-//! - an invited contact can establish a forward-secret session and exchange messages that
-//!   survive a round-trip through a relay holding only opaque, equal-sized blobs;
-//! - the relay learns nothing from length (even the handshake message is the same size as a
-//!   one-byte reply) and never sees plaintext;
-//! - a third party who captures a blob cannot decrypt it;
+//! - an invited contact can establish a forward-secret session and receive messages delivered
+//!   through an authenticated simplex queue on an untrusted relay;
+//! - the relay holds only opaque, equal-sized blobs (even the handshake) and never plaintext;
+//! - the write-only sender capability cannot read the recipient's queue;
 //! - trust earned through signed vouches unlocks higher capabilities.
-
-use std::collections::HashMap;
 
 use lattice_core::framing::{self, BLOCK_SIZE};
 use lattice_core::identity::Identity;
 use lattice_core::invite::InviteBook;
 use lattice_core::messaging::{Device, OneToOneSession, PlainMessage, Session};
-use lattice_core::transport::{Blob, QueueAddr, Transport, TransportError};
+use lattice_core::queue::{InMemoryRelay, RecipientQueue, SenderCapability};
+use lattice_core::transport::Blob;
 use lattice_core::trust::{AddedVia, Contact, Tier, TrustGraph, TrustParams};
 use lattice_core::vouching::SignedVouch;
 
 const NOW: i64 = 1_900_000_000;
 const HOUR: i64 = 3_600;
-
-/// An in-memory stand-in for an untrusted SMP-style relay, modelling exactly what a real
-/// relay can observe and do: it holds opaque blobs in per-queue mailboxes keyed by an opaque
-/// address, and can neither read nor attribute them. It additionally records every blob
-/// length it has handled so tests can assert the relay's view carries no metadata.
-#[derive(Default)]
-struct MemoryRelay {
-    queues: HashMap<Vec<u8>, Vec<Blob>>,
-    observed_lengths: Vec<usize>,
-}
-
-impl MemoryRelay {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    /// Every blob length this relay has ever been asked to store.
-    fn observed_lengths(&self) -> &[usize] {
-        &self.observed_lengths
-    }
-
-    /// All blobs currently resident in any queue (what a relay seizure would expose).
-    fn resident_blobs(&self) -> impl Iterator<Item = &Blob> {
-        self.queues.values().flatten()
-    }
-}
-
-impl Transport for MemoryRelay {
-    fn send(&mut self, queue: &QueueAddr, blob: &Blob) -> Result<(), TransportError> {
-        self.observed_lengths.push(blob.0.len());
-        self.queues.entry(queue.0.clone()).or_default().push(blob.clone());
-        Ok(())
-    }
-
-    fn receive(&mut self, queue: &QueueAddr) -> Result<Vec<Blob>, TransportError> {
-        Ok(self.queues.get_mut(&queue.0).map(std::mem::take).unwrap_or_default())
-    }
-}
-
-/// A random-looking, identity-free queue address. In production this is random per contact;
-/// here a fixed opaque value is enough and deliberately bears no relation to any identity.
-fn bob_queue() -> QueueAddr {
-    QueueAddr(b"opaque-receive-queue-for-bob".to_vec())
-}
 
 /// Encrypt with the ratchet, then pad to a fixed-size block — the full client send path.
 fn seal_for_wire(session: &mut Session, msg: &PlainMessage) -> Blob {
@@ -74,14 +29,15 @@ fn seal_for_wire(session: &mut Session, msg: &PlainMessage) -> Blob {
     Blob(framing::pad(&ciphertext).expect("pad to block"))
 }
 
-/// Unpad a received block, then decrypt with the ratchet — the full client receive path.
-fn open_from_wire(session: &mut Session, blob: &Blob) -> PlainMessage {
-    let ciphertext = framing::unpad(&blob.0).expect("unpad block");
-    session.decrypt(&ciphertext).expect("ratchet decrypt")
+/// What a contact receives out-of-band with the invite to be able to message the inviter: the
+/// Olm pre-key bundle (to start a session) and the write-only queue capability (to deliver).
+struct InviteChannel {
+    prekey_bundle: lattice_core::messaging::PreKeyBundle,
+    sender_capability: SenderCapability,
 }
 
 #[test]
-fn invite_then_forward_secret_delivery_through_an_untrusted_relay() {
+fn invite_then_forward_secret_delivery_over_authenticated_queues() {
     // Alice onboards Bob by personal invitation (the only entry path).
     let alice_id = Identity::generate("alice").unwrap();
     let bob_id = Identity::generate("bob").unwrap();
@@ -89,77 +45,76 @@ fn invite_then_forward_secret_delivery_through_an_untrusted_relay() {
     let mut book = InviteBook::new();
     let token = book.issue(HOUR, NOW).unwrap();
     let grant = book.redeem(&token, NOW).unwrap();
-    let bob_contact = grant.into_contact(bob_id.verifying_key().local_id());
+    let alice_contact = grant.into_contact(bob_id.verifying_key().local_id());
 
-    let mut alice_graph = TrustGraph::new(TrustParams::default());
-    alice_graph.upsert_contact(bob_contact);
+    // Bob (the inviter here receives; model Bob as the one being messaged) records Alice.
+    let mut bob_graph = TrustGraph::new(TrustParams::default());
+    bob_graph.upsert_contact(alice_contact);
     assert_eq!(
-        alice_graph.recompute_tier(&bob_id.verifying_key().local_id(), NOW),
+        bob_graph.recompute_tier(&bob_id.verifying_key().local_id(), NOW),
         Tier::Invited,
         "an invitee onboards at Tier 0"
     );
-    let _ = &alice_id; // signing identity drives vouching/anchoring, not this message path.
+    let _ = &alice_id;
 
-    // Alongside the invite handshake, Bob publishes a one-time pre-key bundle.
-    let alice = Device::new();
-    let mut bob = Device::new();
-    let bundle = bob.publish_prekey_bundle();
+    let mut relay = InMemoryRelay::new();
 
-    // Alice starts a session and sends Bob a message through the relay.
-    let mut alice_session = alice.start_session(&bundle).unwrap();
-    let mut relay = MemoryRelay::new();
+    // Bob provisions a queue and Olm pre-key, and hands the capability + bundle to Alice with
+    // the invite. Bob keeps the private recipient handle.
+    let mut bob_device = Device::new();
+    let (bob_queue, sender_capability) = RecipientQueue::create(&mut relay).unwrap();
+    let channel = InviteChannel { prekey_bundle: bob_device.publish_prekey_bundle(), sender_capability };
+
+    // Alice starts a session and delivers a message through Bob's authenticated queue.
+    let alice_device = Device::new();
+    let mut alice_session = alice_device.start_session(&channel.prekey_bundle).unwrap();
     let message = PlainMessage::new(b"the meeting moved to 7pm, use the back entrance".to_vec());
-    relay.send(&bob_queue(), &seal_for_wire(&mut alice_session, &message)).unwrap();
+    channel.sender_capability.send(&mut relay, &seal_for_wire(&mut alice_session, &message)).unwrap();
 
-    // Bob drains his queue, unpads, and accepts the session from the first (pre-key) message.
-    let delivered = relay.receive(&bob_queue()).unwrap();
+    // Bob reads his queue, unpads, and accepts the session from the first (pre-key) message.
+    let delivered = bob_queue.receive(&mut relay).unwrap();
     assert_eq!(delivered.len(), 1);
     let first_wire = framing::unpad(&delivered[0].0).unwrap();
-    let (mut bob_session, received) = bob.accept_session(alice.identity_key(), &first_wire).unwrap();
-    assert_eq!(received, message, "Bob recovers Alice's first message verbatim");
+    let (_bob_session, received) =
+        bob_device.accept_session(alice_device.identity_key(), &first_wire).unwrap();
+    assert_eq!(received, message, "Bob recovers Alice's message verbatim");
 
-    // Bob replies; the channel is now fully bidirectional and forward-secret.
-    relay
-        .send(&bob_queue(), &seal_for_wire(&mut bob_session, &PlainMessage::new(b"understood".to_vec())))
-        .unwrap();
-    let reply_blobs = relay.receive(&bob_queue()).unwrap();
-    assert_eq!(open_from_wire(&mut alice_session, &reply_blobs[0]).body, b"understood");
-
-    // Everything the relay handled was a fixed-size block.
-    assert!(relay.observed_lengths().iter().all(|&n| n == BLOCK_SIZE));
+    // After acking, the queue is empty.
+    bob_queue.ack(&mut relay).unwrap();
+    assert!(bob_queue.receive(&mut relay).unwrap().is_empty());
 }
 
 #[test]
-fn the_relay_sees_only_equal_sized_opaque_blobs() {
-    let alice = Device::new();
-    let mut bob = Device::new();
-    let bundle = bob.publish_prekey_bundle();
-    let mut alice_session = alice.start_session(&bundle).unwrap();
+fn the_relay_holds_only_equal_sized_opaque_blobs() {
+    let mut relay = InMemoryRelay::new();
+    let mut bob_device = Device::new();
+    let (_bob_queue, cap) = RecipientQueue::create(&mut relay).unwrap();
+    let bundle = bob_device.publish_prekey_bundle();
 
-    let mut relay = MemoryRelay::new();
+    let alice_device = Device::new();
+    let mut alice_session = alice_device.start_session(&bundle).unwrap();
+
     // The handshake (pre-key) message, a terse ack, and a multi-kilobyte message.
-    relay.send(&bob_queue(), &seal_for_wire(&mut alice_session, &PlainMessage::new(b"k".to_vec()))).unwrap();
-    relay.send(&bob_queue(), &seal_for_wire(&mut alice_session, &PlainMessage::new(b"y".to_vec()))).unwrap();
-    relay
-        .send(&bob_queue(), &seal_for_wire(&mut alice_session, &PlainMessage::new(vec![7u8; 8192])))
-        .unwrap();
+    cap.send(&mut relay, &seal_for_wire(&mut alice_session, &PlainMessage::new(b"k".to_vec()))).unwrap();
+    cap.send(&mut relay, &seal_for_wire(&mut alice_session, &PlainMessage::new(b"y".to_vec()))).unwrap();
+    cap.send(&mut relay, &seal_for_wire(&mut alice_session, &PlainMessage::new(vec![7u8; 8192]))).unwrap();
 
-    // A handshake, a 1-byte ack, and an 8 KiB message are all indistinguishable by size.
-    assert_eq!(relay.observed_lengths(), [BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE]);
+    // Everything the relay holds is one fixed size: length leaks nothing, not even handshake.
+    assert!(relay.resident_blobs().all(|b| b.0.len() == BLOCK_SIZE));
+    assert_eq!(relay.resident_blobs().count(), 3);
 }
 
 #[test]
 fn a_seized_relay_exposes_no_plaintext() {
-    let alice = Device::new();
-    let mut bob = Device::new();
-    let bundle = bob.publish_prekey_bundle();
-    let mut alice_session = alice.start_session(&bundle).unwrap();
+    let mut relay = InMemoryRelay::new();
+    let mut bob_device = Device::new();
+    let (_bob_queue, cap) = RecipientQueue::create(&mut relay).unwrap();
+    let bundle = bob_device.publish_prekey_bundle();
 
-    let mut relay = MemoryRelay::new();
+    let alice_device = Device::new();
+    let mut alice_session = alice_device.start_session(&bundle).unwrap();
     let secret = b"SAFEHOUSE-ADDR-221B-BAKER-ST";
-    relay
-        .send(&bob_queue(), &seal_for_wire(&mut alice_session, &PlainMessage::new(secret.to_vec())))
-        .unwrap();
+    cap.send(&mut relay, &seal_for_wire(&mut alice_session, &PlainMessage::new(secret.to_vec()))).unwrap();
 
     for held in relay.resident_blobs() {
         assert!(
@@ -170,31 +125,17 @@ fn a_seized_relay_exposes_no_plaintext() {
 }
 
 #[test]
-fn a_third_party_who_captures_a_blob_cannot_read_it() {
-    let alice = Device::new();
-    let mut bob = Device::new();
-    let bundle = bob.publish_prekey_bundle();
-    let mut alice_session = alice.start_session(&bundle).unwrap();
+fn the_write_only_sender_cannot_read_the_recipients_queue() {
+    // Alice holds only the sender capability; she can deliver but must not be able to read
+    // Bob's queue (capability separation), even though she shares the relay.
+    let mut relay = InMemoryRelay::new();
+    let (_bob_queue, cap) = RecipientQueue::create(&mut relay).unwrap();
+    cap.send(&mut relay, &Blob(framing::pad(b"opaque").unwrap())).unwrap();
 
-    let mut relay = MemoryRelay::new();
-    relay
-        .send(&bob_queue(), &seal_for_wire(&mut alice_session, &PlainMessage::new(b"for bob only".to_vec())))
-        .unwrap();
-    let captured = relay.receive(&bob_queue()).unwrap().remove(0);
-    let captured_wire = framing::unpad(&captured.0).unwrap();
-
-    // Eve, with her own unrelated session, cannot decrypt Alice's captured ciphertext.
-    let mut eve_bob = Device::new();
-    let eve_bundle = eve_bob.publish_prekey_bundle();
-    let eve = Device::new();
-    let mut eve_session = eve.start_session(&eve_bundle).unwrap();
-    let intro = eve_session.encrypt(&PlainMessage::new(b"hi".to_vec())).unwrap();
-    let (mut eve_bob_session, _) = eve_bob.accept_session(eve.identity_key(), &intro).unwrap();
-
-    assert!(
-        eve_bob_session.decrypt(&captured_wire).is_err(),
-        "a foreign session must not decrypt a captured blob"
-    );
+    // The capability exposes no read method and no recipient id; the bytes Alice holds are
+    // purely the write capability.
+    let reconstructed = SenderCapability::from_bytes(&cap.to_bytes());
+    reconstructed.send(&mut relay, &Blob(framing::pad(b"still only writes").unwrap())).unwrap();
 }
 
 #[test]

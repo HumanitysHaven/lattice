@@ -18,9 +18,11 @@
 //! channels over the audited Olm Double Ratchet (`vodozemac`), and [`framing`] is the
 //! metadata-resistance kernel of the transport: it pads every payload into a fixed-size block
 //! (and can also seal it) so an untrusted relay sees only equal-sized opaque blobs. The
-//! [`transport`] module remains a typed scaffold whose concrete relay client (Tor/SMP queues)
-//! lands in a later milestone, and group messaging (OpenMLS) is milestone 1.7 (see
-//! `docs/roadmap.md`).
+//! [`queue`] module is the SMP-style anonymous simplex-queue protocol — identity-free random
+//! queues with recipient/sender capability separation and authenticated commands — with a
+//! reference relay that enforces the rules; the [`transport`] module is the lower-level opaque
+//! blob pipe a networked relay client (Tor) will implement. Group messaging (OpenMLS) is
+//! milestone 1.7 (see `docs/roadmap.md`).
 
 #![forbid(unsafe_code)]
 
@@ -31,6 +33,7 @@ pub mod identity;
 pub mod invite;
 pub mod messaging;
 pub mod persistence;
+pub mod queue;
 pub mod transport;
 pub mod trust;
 pub mod vouching;

@@ -4,7 +4,13 @@
 //! on **untrusted relays**, run over Tor with pluggable transports. Relays see only
 //! opaque, fixed-size (padded) blobs in random queues and cannot link sender to recipient
 //! or identify users. There are no user identifiers and no identity-linked push tokens
-//! (req `S12`). Concrete relay clients land in a later milestone.
+//! (req `S12`).
+//!
+//! This module is the **lowest-level byte pipe** to a relay endpoint — the part a concrete
+//! Tor/socket client implements. The authenticated simplex-queue *protocol* (queue creation,
+//! recipient/sender capability separation, signed commands) lives in [`crate::queue`], which
+//! is fully implemented and tested against a reference relay; a networked relay client speaks
+//! that protocol over this pipe and lands in a later milestone.
 
 /// An opaque, fixed-size (padded) blob — all a relay ever sees.
 ///

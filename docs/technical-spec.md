@@ -255,6 +255,15 @@ Sybil-cluster check within the 1-hop horizon).
 ### 7.4 Delivery & metadata resistance (`A4`, `S2`, `S5`)
 - **Anonymous unidirectional queues** (SMP model): separate send/receive queues with
   random per-contact addresses; relays cannot link the two sides.
+  > **Protocol kernel implemented (`core/src/queue.rs`).** A simplex queue is named by two
+  > independent random ids (recipient + sender) carrying no identity. The receiver holds a
+  > per-queue Ed25519 recipient key; the one contact holds a separate sender key. Reads
+  > (receive/ack/delete) require the recipient key; writes require the sender key — so a
+  > contact who can write to you cannot read your queue and never learns its recipient id
+  > (**capability separation**). Every command is signed over a domain-separated canonical
+  > encoding and verified by the relay; a reference `InMemoryRelay` enforces all of this and is
+  > the untrusted party in tests. The networked client (these commands over Tor, below) is the
+  > remaining work; the relay already only ever sees opaque, fixed-size blobs.
 - **2-hop private routing** hides sender IP/session from the recipient's chosen relay.
 - **Run over Tor** with pluggable transports/bridges where the network is hostile.
 - **Fixed-size (16KB) blocks**, batching/delay, and optional **cover traffic** to resist
