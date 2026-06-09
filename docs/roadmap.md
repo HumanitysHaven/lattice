@@ -93,9 +93,21 @@ where it touches money or new metadata, its own audit and legal sign-off.
 
 ---
 
-## Immediate next actions (post-scaffold)
+## Progress snapshot (pure core)
+
+The safety-critical, network-free core is implemented and tested in isolation: the trust
+engine (0.3), persistence + encryption at rest (0.4 / 1.2), identity & recovery (1.1),
+signed vouches/burns (1.6 ingestion), invitation onboarding (1.5 lifecycle), the duress /
+deniable vault (1.8 core), and the transport length-hiding framing kernel (1.3 core). An
+end-to-end integration harness (`core/tests/end_to_end.rs`) with an in-memory untrusted
+relay composes these through the public API and asserts the emergent properties
+(equal-sized opaque blobs, no plaintext at the relay, key-gated reads, vouch-driven
+capability unlocks). What remains in Phase 1 is the native/networked work below.
+
+## Immediate next actions
 
 1. Get `threat-model.md` and `technical-spec.md` in front of an external reviewer (0.1/0.2).
 2. Decide the open engineering questions in `technical-spec.md` §13 (SimpleX integration
    approach; run-our-own vs. public relays; Flutter-over-Rust FFI vs. native screens).
-3. Begin Phase 1.1 (identity & recovery) against the existing typed stubs.
+3. Begin 1.4 (libsignal Double Ratchet) — its per-message key feeds the framing kernel —
+   then the Tor/SMP queue plumbing (1.3 remainder) and OpenMLS groups (1.7).
