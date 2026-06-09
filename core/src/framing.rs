@@ -89,6 +89,37 @@ pub fn seal(key: &[u8; KEY_LEN], payload: &[u8]) -> Result<Blob, FrameError> {
     Ok(Blob(out))
 }
 
+/// Pad an **already-encrypted** payload into a fixed-size block for the wire, *without* adding
+/// another encryption layer. Use this for content that is already confidential — e.g. Double
+/// Ratchet ([`crate::messaging`]) ciphertext — so the relay sees only uniform [`BLOCK_SIZE`]
+/// blobs and learns nothing from length. Returns exactly [`BLOCK_SIZE`] bytes.
+///
+/// Confidentiality and integrity must already be provided by the payload (the ratchet's AEAD);
+/// the padding itself is not authenticated, but a truncated or altered block simply fails to
+/// decrypt at the ratchet, which is no worse than a relay dropping the message.
+pub fn pad(payload: &[u8]) -> Result<Vec<u8>, FrameError> {
+    if payload.len() > MAX_PAYLOAD {
+        return Err(FrameError::TooLarge);
+    }
+    let mut block = vec![0u8; BLOCK_SIZE];
+    block[..LEN_PREFIX].copy_from_slice(&(payload.len() as u32).to_be_bytes());
+    block[LEN_PREFIX..LEN_PREFIX + payload.len()].copy_from_slice(payload);
+    Ok(block)
+}
+
+/// Recover a payload from a block produced by [`pad`]. Rejects any block that is not exactly
+/// [`BLOCK_SIZE`] bytes or whose declared length is out of range ([`FrameError::Malformed`]).
+pub fn unpad(block: &[u8]) -> Result<Vec<u8>, FrameError> {
+    if block.len() != BLOCK_SIZE {
+        return Err(FrameError::Malformed);
+    }
+    let len = u32::from_be_bytes(block[..LEN_PREFIX].try_into().unwrap()) as usize;
+    if len > MAX_PAYLOAD {
+        return Err(FrameError::Malformed);
+    }
+    Ok(block[LEN_PREFIX..LEN_PREFIX + len].to_vec())
+}
+
 /// Open a blob produced by [`seal`], returning the original payload. Rejects any blob that is
 /// not exactly [`SEALED_LEN`] bytes ([`FrameError::Malformed`]) and any wrong-key or tampered
 /// blob ([`FrameError::Crypto`]) — there is no length or content oracle.
@@ -193,6 +224,25 @@ mod tests {
         assert_eq!(open(&k, &long).unwrap_err(), FrameError::Malformed);
 
         assert_eq!(open(&k, &Blob(Vec::new())).unwrap_err(), FrameError::Malformed);
+    }
+
+    #[test]
+    fn pad_unpad_round_trips_and_hides_length() {
+        for len in [0usize, 1, 200, 4096, MAX_PAYLOAD] {
+            let payload = vec![0x5Au8; len];
+            let block = pad(&payload).unwrap();
+            assert_eq!(block.len(), BLOCK_SIZE, "every padded block is the same size");
+            assert_eq!(unpad(&block).unwrap(), payload);
+        }
+    }
+
+    #[test]
+    fn pad_rejects_oversized_and_unpad_rejects_wrong_size() {
+        assert_eq!(pad(&vec![0u8; MAX_PAYLOAD + 1]).unwrap_err(), FrameError::TooLarge);
+        assert_eq!(unpad(&[0u8; BLOCK_SIZE - 1]).unwrap_err(), FrameError::Malformed);
+        let mut block = pad(b"hi").unwrap();
+        block.push(0);
+        assert_eq!(unpad(&block).unwrap_err(), FrameError::Malformed);
     }
 
     #[test]

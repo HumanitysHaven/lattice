@@ -23,5 +23,10 @@ chacha20poly1305 = "0.10"
 # Compact, no-std-friendly serialization of the persisted trust store.
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", features = ["alloc"] }
+# 1:1 messaging (req 7.3): audited pure-Rust Double Ratchet (Olm). We do NOT roll our own
+# ratchet. Spec named libsignal, which is not consumable as a hermetic Rust crate (git-only,
+# AGPL, BoringSSL + forked deps); vodozemac is the audited (Least Authority), crates.io,
+# pure-Rust Double Ratchet used across the Matrix ecosystem. See docs/technical-spec.md §7.3.
+vodozemac = "0.10"
 
 [dev-dependencies]

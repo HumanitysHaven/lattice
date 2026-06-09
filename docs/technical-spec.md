@@ -51,7 +51,7 @@ fixed-size blobs in anonymous queues (`A2`, `S4`); the network layer hides metad
 |------|--------|-----------|--------------------------|
 | Security-critical core | **Rust**, compiled to Android (JNI/UniFFI), iOS (UniFFI), desktop | One audited codebase; memory safety; no GC timing leaks | Kotlin/Swift per-platform (2x audit surface) |
 | UI shell | **Flutter** (Dart) over the Rust core via FFI | One cross-platform UI; cheap-Android friendly (`7.8`) | React Native; native per-OS |
-| 1:1 crypto | **libsignal** (X3DH/PQXDH + Double Ratchet) | Audited, forward secrecy + post-compromise (`7.3`) | Custom (rejected — `7.3` forbids own crypto) |
+| 1:1 crypto | **Olm Double Ratchet via `vodozemac`** (audited, pure Rust) — *deviation from spec's libsignal; see §7.1* | Audited, forward secrecy + post-compromise (`7.3`); hermetic crates.io build | libsignal (git-only/AGPL/BoringSSL — not hermetic); custom (rejected — `7.3` forbids own crypto) |
 | Group crypto | **OpenMLS** (RFC 9420) | Audited scalable group E2EE, async joins via KeyPackages | Sender-keys (weaker PCS) |
 | Transport / delivery | **SimpleX SMP model** (anonymous unidirectional queues + 2-hop private routing), run over **Tor** w/ pluggable transports | No user identifiers; relays can't link sender↔recipient; censorship-resistant (`A1`,`A2`,`A4`,`S2`,`S4`) | Matrix (server-side graph — rejected); raw P2P (NAT/availability pain) |
 | Local storage | **SQLCipher** (AES-256), key from **Argon2id** | Encrypted at rest (`7.3`); duress vaults (`7.6`) | Plain SQLite + file crypto (more error-prone) |
@@ -75,7 +75,7 @@ No PII, ever. A user is a set of on-device keys, not an account.
 Identity {
   id_seed            : 32 bytes (CSPRNG)           # never leaves device
   signing_keypair    : Ed25519                     # signs vouches/attestations
-  dr_identity        : libsignal identity key      # 1:1 sessions
+  dr_identity        : Olm (vodozemac) account     # 1:1 sessions (Double Ratchet)
   mls_credential     : OpenMLS BasicCredential      # group identity (per community)
   display_nickname   : string (local, user-set; not unique, not network-visible)
   created_at         : local timestamp
@@ -220,8 +220,25 @@ Sybil-cluster check within the 1-hop horizon).
 ## 7. Messaging & sharing
 
 ### 7.1 One-to-one
-- **libsignal**: X3DH/PQXDH handshake → Double Ratchet. Forward secrecy + PCS (`7.3`).
+- **Double Ratchet**: 3DH pre-key handshake → Double Ratchet. Forward secrecy + PCS (`7.3`).
 - **Disappearing by default** (`7.3`): per-conversation TTL, default on.
+  > **Implemented (`core/src/messaging.rs`).** Forward-secret 1:1 channels are done, built on
+  > the audited **Olm** Double Ratchet via the pure-Rust **`vodozemac`** crate (we never roll
+  > our own ratchet). A `Device` owns the Olm account; a responder publishes a one-time
+  > `PreKeyBundle` (alongside the invite), the initiator calls `start_session`, and the first
+  > ciphertext is a pre-key message the responder feeds to `accept_session`. Steady-state
+  > `encrypt`/`decrypt` advance the ratchet; the disappearing-message TTL travels **inside**
+  > the encrypted payload so the relay never sees it. The wire form `type ‖ olm-ciphertext` is
+  > padded to a fixed block (`framing::pad`) before transport.
+  >
+  > **Deviation from the named libsignal.** libsignal is not consumable as a hermetic Rust
+  > dependency — git-only (not on crates.io), AGPL, and dependent on BoringSSL + forked crates
+  > — which conflicts with this crate's pure, reproducible, cross-platform build. `vodozemac`
+  > implements the same Double Ratchet (Olm), is pure Rust on crates.io, is independently
+  > audited (Least Authority, no significant findings), and provides Megolm for §7.2 groups.
+  > Trade-off vs. Signal: Olm's pre-key handshake is classic 3DH (no X3DH one-time-prekey
+  > signing nuances and **no PQXDH post-quantum** step). PQ hardening is tracked as future
+  > work; it does not block the MVP.
 
 ### 7.2 Groups / communities
 - **OpenMLS (RFC 9420)**: scalable group E2EE; async joins via KeyPackages published to
@@ -324,7 +341,7 @@ in the mixnet/Tor transport to avoid IP/timing leaks (`S2`, `S5`).
 **In:**
 1. Identity creation + 24-word recovery (`7.1`).
 2. Invitation-only onboarding via in-person QR / one-time link (`7.2`).
-3. 1:1 E2EE chat (libsignal) with disappearing messages (`7.3`).
+3. 1:1 E2EE chat (Olm Double Ratchet via `vodozemac`) with disappearing messages (`7.3`).
 4. Local trust engine: contacts, vouches, trust scoring, tiers 0–2 (§6).
 5. Burn/revocation gossip to 1-hop (`7.2`).
 6. Anonymous-queue transport over Tor (SMP model) (`7.4`).
@@ -341,7 +358,7 @@ verified by the test plan (§12).**
 
 ## 12. Verification & test plan
 
-- **Crypto:** rely on upstream audits (libsignal, OpenMLS, SMP); add integration tests
+- **Crypto:** rely on upstream audits (vodozemac/Olm, OpenMLS, SMP); add integration tests
   for handshake, ratchet, group add/remove, KeyPackage flows.
 - **Metadata tests (`A4`,`S5`):** assert fixed-size blocks, no plaintext identifiers on
   the wire, sender↔recipient unlinkability at a relay we instrument as an adversary.

@@ -14,11 +14,13 @@
 //! provides the on-device Ed25519 keys and BIP39 recovery, [`invite`] is the
 //! invitation-only onboarding gateway (single-use, expiring, identity-free tokens), and
 //! [`vouching`] is the ingestion boundary that verifies signed vouches/burns before they
-//! reach the pure trust engine. The [`framing`] module is the metadata-resistance kernel of
-//! the transport: it pads every payload into a fixed-size block and seals it so an untrusted
-//! relay sees only equal-sized opaque blobs. The [`messaging`] and [`transport`] modules
-//! remain typed scaffolds whose concrete implementations (libsignal, OpenMLS, Tor/SMP queues)
-//! wrap audited upstream libraries and land in later milestones (see `docs/roadmap.md`).
+//! reach the pure trust engine. The [`messaging`] module provides forward-secret 1:1
+//! channels over the audited Olm Double Ratchet (`vodozemac`), and [`framing`] is the
+//! metadata-resistance kernel of the transport: it pads every payload into a fixed-size block
+//! (and can also seal it) so an untrusted relay sees only equal-sized opaque blobs. The
+//! [`transport`] module remains a typed scaffold whose concrete relay client (Tor/SMP queues)
+//! lands in a later milestone, and group messaging (OpenMLS) is milestone 1.7 (see
+//! `docs/roadmap.md`).
 
 #![forbid(unsafe_code)]
 

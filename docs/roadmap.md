@@ -38,7 +38,7 @@ vetted technical reviewers using throwaway data.
 | 1.1 | Identity & recovery | Real Ed25519 signing identity ✅ + 24-word BIP39 recovery restores the same identity ✅ + sign/verify ✅; no PII anywhere ✅ (`7.1`). libsignal Double-Ratchet identity key deferred to 1.4 (reuses the same seed) |
 | 1.2 | Encrypted local store | Done ✅ (pure-Rust at-rest vault instead of SQLCipher): Argon2id-derived key + XChaCha20-Poly1305 AEAD seal of the serialized store via `at_rest`/`persistence::seal_graph`; header (incl. KDF params) authenticated; untrusted KDF params bounded; nothing plaintext at rest, wrong passphrase/tamper rejected (`7.3`). Note: deviates from spec's SQLCipher choice to keep the core pure/hermetic; a queryable encrypted DB can layer over the same key later. Duress/decoy vault is 1.8 |
 | 1.3 | Anonymous-queue transport | Length-hiding kernel done ✅ (`framing`): every payload is padded into a fixed-size block and AEAD-sealed (XChaCha20-Poly1305, reusing `at_rest` primitives) so all blobs are exactly `SEALED_LEN` bytes — a relay sees only equal-sized opaque blobs with no length signal; wrong-key/tamper/malformed rejected, no plaintext leakage. Remaining: SMP-style queues over Tor + adversarial-relay unlinkability instrumentation (`7.4`, `S5`) |
-| 1.4 | 1:1 messaging | libsignal Double Ratchet; disappearing by default (`7.3`) |
+| 1.4 | 1:1 messaging | Done ✅ (`messaging`): forward-secret 1:1 channels over the audited Olm Double Ratchet (`vodozemac`), with pre-key handshake, ratchet advance, out-of-order tolerance, and disappearing TTL carried **inside** the encrypted payload (`7.3`). Wire = `type ‖ olm-ciphertext`, padded to a fixed block (`framing::pad`) so the relay sees equal-sized opaque blobs. **Deviation:** spec named libsignal, which is not consumable as a hermetic Rust crate (git-only, AGPL, BoringSSL); vodozemac is the audited (Least Authority), pure-Rust, crates.io Double Ratchet and also gives us Megolm for 1.7. Remaining: bind the Olm handshake to the verified invite/identity, and derive the Olm account from the same on-device seed as the signing identity |
 | 1.5 | Invitation onboarding | Core lifecycle done ✅: single-use, expiring, identity-free invite tokens (`invite`) with authoritative issuer-side validation, encode/decode for QR/link, and Tier-0 onboarding; no stranger discovery exists. Remaining: carry redemption over the anonymous-queue handshake (1.3/1.4) and QR/link UI (`7.2`, `S11`) |
 | 1.6 | Trust engine integrated | Core ingestion done ✅: signed vouches/burns (`vouching`) are signature-verified at the boundary, then drive score/tier/burn in the engine. Remaining: wire to real in-app capability gating once UI exists (`7.2`) |
 | 1.7 | Small-group chat | OpenMLS group gated at Tier 1+; add/remove rotates keys (`7.3`) |
@@ -95,19 +95,22 @@ where it touches money or new metadata, its own audit and legal sign-off.
 
 ## Progress snapshot (pure core)
 
-The safety-critical, network-free core is implemented and tested in isolation: the trust
-engine (0.3), persistence + encryption at rest (0.4 / 1.2), identity & recovery (1.1),
-signed vouches/burns (1.6 ingestion), invitation onboarding (1.5 lifecycle), the duress /
-deniable vault (1.8 core), and the transport length-hiding framing kernel (1.3 core). An
-end-to-end integration harness (`core/tests/end_to_end.rs`) with an in-memory untrusted
-relay composes these through the public API and asserts the emergent properties
-(equal-sized opaque blobs, no plaintext at the relay, key-gated reads, vouch-driven
-capability unlocks). What remains in Phase 1 is the native/networked work below.
+The safety-critical core is implemented and tested in isolation: the trust engine (0.3),
+persistence + encryption at rest (0.4 / 1.2), identity & recovery (1.1), signed vouches/burns
+(1.6 ingestion), invitation onboarding (1.5 lifecycle), the duress / deniable vault (1.8
+core), the transport length-hiding framing kernel (1.3 core), and forward-secret 1:1
+messaging over the Olm Double Ratchet (1.4). An end-to-end integration harness
+(`core/tests/end_to_end.rs`) with an in-memory untrusted relay composes these through the
+public API and asserts the emergent properties (forward-secret delivery, equal-sized opaque
+blobs even for the handshake, no plaintext at the relay, captured blobs unreadable by third
+parties, vouch-driven capability unlocks). What remains in Phase 1 is the networked relay
+client (1.3 remainder) and group messaging (1.7).
 
 ## Immediate next actions
 
 1. Get `threat-model.md` and `technical-spec.md` in front of an external reviewer (0.1/0.2).
 2. Decide the open engineering questions in `technical-spec.md` §13 (SimpleX integration
    approach; run-our-own vs. public relays; Flutter-over-Rust FFI vs. native screens).
-3. Begin 1.4 (libsignal Double Ratchet) — its per-message key feeds the framing kernel —
-   then the Tor/SMP queue plumbing (1.3 remainder) and OpenMLS groups (1.7).
+3. Build the networked relay client (1.3 remainder): a real `Transport` over Tor/SMP queues
+   behind the same trait the harness already exercises, with adversarial-relay unlinkability
+   tests; then OpenMLS groups (1.7, building on vodozemac's Megolm).
