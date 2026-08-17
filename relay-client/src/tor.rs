@@ -40,6 +40,7 @@ impl TorRelayClient {
         relay_host: impl Into<String>,
         relay_port: u16,
     ) -> Result<Self, QueueError> {
+        install_crypto_provider();
         let runtime = Runtime::new().map_err(|_| QueueError::Transport)?;
         let config = TorClientConfigBuilder::from_directories(state_dir, cache_dir)
             .build()
@@ -52,12 +53,24 @@ impl TorRelayClient {
     /// As [`bootstrap`](Self::bootstrap), but with the default [`TorClientConfig`] (Arti's own
     /// default state/cache locations) rather than caller-chosen directories.
     pub fn bootstrap_default(relay_host: impl Into<String>, relay_port: u16) -> Result<Self, QueueError> {
+        install_crypto_provider();
         let runtime = Runtime::new().map_err(|_| QueueError::Transport)?;
         let tor = runtime
             .block_on(TorClient::create_bootstrapped(TorClientConfig::default()))
             .map_err(|_| QueueError::Transport)?;
         Ok(Self { tor, host: relay_host.into(), port: relay_port, runtime })
     }
+}
+
+/// `rustls` 0.23 requires a process-wide default [`rustls::crypto::CryptoProvider`] to be
+/// installed before any TLS connection is made, and refuses to guess when more than one
+/// backend could plausibly be linked in. We depend on `ring` explicitly for this (matching
+/// the backend Arti's own dependency tree already resolves to), so install it here rather
+/// than leaving every caller to discover the panic and do this themselves. Idempotent: a
+/// second install attempt (e.g. a second `TorRelayClient` in the same process) is a no-op,
+/// not an error.
+fn install_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
 impl Relay for TorRelayClient {

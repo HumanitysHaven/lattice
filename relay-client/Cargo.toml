@@ -17,6 +17,7 @@ postcard = { version = "1", features = ["alloc"] }
 tokio = { version = "1", features = ["net", "io-util", "rt", "rt-multi-thread", "macros", "time"] }
 tor-rtcompat = { version = "0.45.0", default-features = false, features = ["tokio", "rustls"] }
 arti-client = { version = "0.45.0", default-features = false, features = ["tokio", "rustls", "static-sqlite"] }
+rustls = { version = "0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
 
 [dev-dependencies]
 lattice-relay = { path = "../relay" }
