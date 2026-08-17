@@ -37,7 +37,7 @@ vetted technical reviewers using throwaway data.
 |---|-----------|---------------|
 | 1.1 | Identity & recovery | Real Ed25519 signing identity ✅ + 24-word BIP39 recovery restores the same identity ✅ + sign/verify ✅; no PII anywhere ✅ (`7.1`). libsignal Double-Ratchet identity key deferred to 1.4 (reuses the same seed) |
 | 1.2 | Encrypted local store | Done ✅ (pure-Rust at-rest vault instead of SQLCipher): Argon2id-derived key + XChaCha20-Poly1305 AEAD seal of the serialized store via `at_rest`/`persistence::seal_graph`; header (incl. KDF params) authenticated; untrusted KDF params bounded; nothing plaintext at rest, wrong passphrase/tamper rejected (`7.3`). Note: deviates from spec's SQLCipher choice to keep the core pure/hermetic; a queryable encrypted DB can layer over the same key later. Duress/decoy vault is 1.8 |
-| 1.3 | Anonymous-queue transport | Kernel done ✅. (a) `framing`: every payload is padded into a fixed-size block (and optionally AEAD-sealed) so all blobs are equal-sized — a relay sees no length signal. (b) `queue`: the SMP-style **authenticated simplex-queue protocol** — identity-free random recipient/sender queue ids, recipient/sender **capability separation** (a contact who can write cannot read, and never learns the recipient id), Ed25519-signed domain-separated commands, plus a reference `InMemoryRelay` that enforces it all; verified end-to-end (Olm message delivered through an authenticated queue; relay holds only opaque equal-sized blobs). Remaining: the **networked relay client** (these commands over Tor with per-queue connections + 2-hop routing) and adversarial-relay unlinkability instrumentation (`7.4`, `S5`) |
+| 1.3 | Anonymous-queue transport | Kernel done ✅. (a) `framing`: every payload is padded into a fixed-size block (and optionally AEAD-sealed) so all blobs are equal-sized — a relay sees no length signal. (b) `queue`: the SMP-style **authenticated simplex-queue protocol** — identity-free random recipient/sender queue ids, recipient/sender **capability separation** (a contact who can write cannot read, and never learns the recipient id), Ed25519-signed domain-separated commands, plus a reference `InMemoryRelay` that enforces it all; verified end-to-end (Olm message delivered through an authenticated queue; relay holds only opaque equal-sized blobs). **Networked relay edges added** ✅: the workspace now has `relay` (a small binary — `InMemoryRelay` behind a length-prefixed TCP listener, shared across connections, no plaintext ever held) and `relay-client` (implements `queue::Relay` over the network) with two transports — `plain::PlainTcpRelayClient` (dev/test only, no anonymity) and `tor::TorRelayClient` (production: `arti-client`, the Tor Project's own pure-Rust client, `static-sqlite` + `rustls` so no system Tor/OpenSSL dependency; every command dials a fresh **isolated Tor circuit**, a superset of "per-queue" unlinkability). The client/server pair and wire framing are verified end-to-end over real loopback TCP sockets (`relay-client/tests/plain_relay.rs`); the Tor dial path compiles against arti's documented API but **could not be exercised against the live Tor network from the environment that built it** (egress to Tor infrastructure was firewalled there) and needs a real bootstrap/circuit run as a sanity check before relying on it. Remaining: verify the live Tor path for real, decide whether `lattice-relay` itself should also be reachable as a Tor onion service (currently clearnet-listener-only — clients dial it via Tor, but the relay's own address isn't hidden), and adversarial-relay unlinkability instrumentation (`7.4`, `S5`) |
 | 1.4 | 1:1 messaging | Done ✅ (`messaging`): forward-secret 1:1 channels over the audited Olm Double Ratchet (`vodozemac`), with pre-key handshake, ratchet advance, out-of-order tolerance, and disappearing TTL carried **inside** the encrypted payload (`7.3`). Wire = `type ‖ olm-ciphertext`, padded to a fixed block (`framing::pad`) so the relay sees equal-sized opaque blobs. **Deviation:** spec named libsignal, which is not consumable as a hermetic Rust crate (git-only, AGPL, BoringSSL); vodozemac is the audited (Least Authority), pure-Rust, crates.io Double Ratchet and also gives us Megolm for 1.7. Remaining: bind the Olm handshake to the verified invite/identity, and derive the Olm account from the same on-device seed as the signing identity |
 | 1.5 | Invitation onboarding | Core lifecycle done ✅: single-use, expiring, identity-free invite tokens (`invite`) with authoritative issuer-side validation, encode/decode for QR/link, and Tier-0 onboarding; no stranger discovery exists. Remaining: carry redemption over the anonymous-queue handshake (1.3/1.4) and QR/link UI (`7.2`, `S11`) |
 | 1.6 | Trust engine integrated | Core ingestion done ✅: signed vouches/burns (`vouching`) are signature-verified at the boundary, then drive score/tier/burn in the engine. Remaining: wire to real in-app capability gating once UI exists (`7.2`) |
@@ -93,7 +93,7 @@ where it touches money or new metadata, its own audit and legal sign-off.
 
 ---
 
-## Progress snapshot (pure core)
+## Progress snapshot
 
 The safety-critical core is implemented and tested in isolation: the trust engine (0.3),
 persistence + encryption at rest (0.4 / 1.2), identity & recovery (1.1), signed vouches/burns
@@ -107,16 +107,25 @@ public API against the reference untrusted relay and assert the emergent propert
 (forward-secret delivery over an authenticated queue, equal-sized opaque blobs even for the
 handshake, no plaintext at the relay, write-only senders that cannot read, vouch-driven
 capability unlocks, and — for groups — real key distribution, fan-out, and rotation-on-removal
-that locks a removed member out). What remains in Phase 1 is the **networked relay client**
-(the queue commands shipped over Tor — the one piece needing live network/native I/O).
+that locks a removed member out).
+
+The repo is now a Cargo workspace: `core` stays the pure, no-network library described above,
+and two new networked edges implement the 1.3 remainder — `relay` (a reference server) and
+`relay-client` (implements `queue::Relay` over the network, with a Tor transport for
+production and a plain-TCP one for dev/test). See 1.3's row above for exactly what's verified
+versus still needing a real Tor network to confirm.
 
 ## Immediate next actions
 
 1. Get `threat-model.md` and `technical-spec.md` in front of an external reviewer (0.1/0.2).
-2. Decide the open engineering questions in `technical-spec.md` §13 (SimpleX integration
-   approach; run-our-own vs. public relays; Flutter-over-Rust FFI vs. native screens).
-3. Build the networked relay client (1.3 remainder): implement the `queue::Relay` trait over
-   Tor (per-queue connections + SMP 2-hop routing), shipping the existing signed commands;
-   add adversarial-relay unlinkability tests.
-4. Evaluate an MLS (RFC 9420) upgrade for groups once they need to scale beyond the small,
+2. Decide the remaining open engineering questions in `technical-spec.md` §13
+   (Flutter-over-Rust FFI vs. native screens; offline/store-and-forward retention window).
+   §13's relay questions are now effectively settled by what's built: a custom Rust protocol
+   (not literal SimpleX SDK integration) against a relay we run ourselves.
+3. Verify `TorRelayClient` against a live Tor network (bootstrap + circuit + connect to a
+   running `lattice-relay`) — the one thing that could not be exercised in the environment
+   that built it — then add the adversarial-relay unlinkability tests (`7.4`, `S5`).
+4. Decide whether `lattice-relay` should itself be reachable as a Tor onion service (hides the
+   relay operator's address too) or clearnet-plus-Tor-dial is sufficient for the threat model.
+5. Evaluate an MLS (RFC 9420) upgrade for groups once they need to scale beyond the small,
    fully-connected shape Megolm suits.

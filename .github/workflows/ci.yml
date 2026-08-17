@@ -18,9 +18,6 @@ jobs:
   check:
     name: fmt + clippy + test
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: core
     steps:
       - uses: actions/checkout@v5
 
@@ -29,14 +26,21 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # relay-client's Tor dependency (arti-client) pulls in ~500 crates; caching keeps CI
+      # fast on unchanged dependencies instead of rebuilding that tree every run.
+      - uses: Swatinem/rust-cache@v2
+
       - name: Formatting
         run: cargo fmt --check
 
+      # Whole workspace: core (pure, no-network) plus the networked relay edges
+      # (relay-client, relay), which pull in arti-client/tokio and take noticeably longer to
+      # build/link than core alone.
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test --all-targets
+        run: cargo test --workspace --all-targets
 
       - name: Doc tests
-        run: cargo test --doc
+        run: cargo test --workspace --doc

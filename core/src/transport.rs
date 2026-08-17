@@ -16,8 +16,9 @@
 ///
 /// The length-hiding padding and AEAD sealing that make a blob opaque and uniform are
 /// implemented in [`crate::framing`] (pure and audited); a concrete [`Transport`] only moves
-/// these blobs and must never inspect or resize them.
-#[derive(Clone, PartialEq, Eq, Debug)]
+/// these blobs and must never inspect or resize them. Serializable so a networked relay edge
+/// can carry it over the wire.
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Blob(pub Vec<u8>);
 
 /// A one-directional anonymous queue address. Random per-contact; carries no identity.

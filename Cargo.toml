@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["core", "relay-client", "relay"]
+
+# `core` stays a pure, hermetic, no-network library (req 7.5) with its own strict lint bar.
+# `relay-client` and `relay` are the networked edges named in docs/roadmap.md 1.3: they carry
+# the async runtime and Tor dependencies core must never depend on, so core's build stays
+# reproducible across Android/iOS/desktop/wasm regardless of what the networked edges need.

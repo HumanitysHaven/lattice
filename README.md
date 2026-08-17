@@ -33,25 +33,28 @@ criminalised, and useful to anyone who needs private, trust-gated community.
 ## Repository layout
 
 ```
-core/    Rust security-critical library (identity, trust, crypto, transport).
-         Compiles to Android/iOS/desktop/wasm. Memory-safe, no unsafe code.
-app/     (planned) Flutter UI shell over the core via FFI.
-relay/   (planned) reference config for the untrusted store-and-forward relay.
-docs/    Threat model, technical spec, architecture.
+core/          Rust security-critical library (identity, trust, crypto, transport).
+                Compiles to Android/iOS/desktop/wasm. Pure, no network I/O, no unsafe code.
+relay-client/   Networked edge: implements core's queue::Relay trait over Tor (arti-client).
+relay/          Reference relay server: enforces core's queue protocol, reachable over the
+                network. Kept out of core/ so core's build stays pure and portable.
+app/            (planned) Flutter UI shell over the core via FFI.
+docs/           Threat model, technical spec, architecture, roadmap.
 ```
 
 ## Current status
 
-Early scaffold. The first implemented piece is the **local trust engine**
-(`core/src/trust.rs`) — the novel, safety-critical core. It is pure and offline (no
-network, no crypto, no I/O), so it can be developed and audited in isolation with zero
-risk to real users.
+The safety-critical core — trust engine, identity, encrypted-at-rest storage, the duress
+vault, invitation onboarding, forward-secret 1:1 (Olm) and small-group (Megolm) messaging,
+and the authenticated anonymous-queue transport protocol — is implemented and tested, along
+with a networked relay client/server pair over Tor. See
+[`docs/roadmap.md`](docs/roadmap.md) for the up-to-date milestone-by-milestone status; it is
+the source of truth for "what's actually done" over this file.
 
 ### Build & test
 
 ```bash
-cd core
-cargo test
+cargo test --workspace
 ```
 
 ## Planned technology (see the spec for rationale)

@@ -1,0 +1,23 @@
+[package]
+name = "lattice-relay"
+version = "0.0.1"
+edition = "2021"
+description = "Reference networked relay server: enforces lattice's authenticated simplex-queue protocol over a plain listener (queue::InMemoryRelay's rules, reachable over the network)"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+name = "lattice_relay"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lattice-relay"
+path = "src/main.rs"
+
+[dependencies]
+lattice-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
+tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "macros", "signal", "sync"] }
+
+[dev-dependencies]

@@ -47,8 +47,9 @@ const ID_LEN: usize = 16;
 /// A random, identity-free queue address.
 type QueueId = [u8; ID_LEN];
 
-/// Why a queue operation failed.
-#[derive(Debug, PartialEq, Eq)]
+/// Why a queue operation failed. Serializable so a networked relay can report it to the client
+/// (see [`Response`]) instead of just dropping the connection.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueueError {
     /// The command bytes could not be decoded.
     Malformed,
@@ -60,6 +61,10 @@ pub enum QueueError {
     QueueExists,
     /// The OS CSPRNG failed to provide entropy.
     Rng,
+    /// A networked [`Relay`] implementation could not reach the relay at all (dial/circuit
+    /// failure, connection reset, malformed frame). Never produced by [`InMemoryRelay`] itself
+    /// — reserved for the networked edges (`lattice-relay-client`) that implement this trait.
+    Transport,
 }
 
 /// A relay command. Carries only random ids, public keys, and opaque blobs — never identity.
@@ -94,8 +99,9 @@ struct SignedCommand {
     signature: Vec<u8>,
 }
 
-/// The relay's reply to a command.
-#[derive(Debug, PartialEq, Eq)]
+/// The relay's reply to a command. Serializable so a networked relay edge (`lattice-relay`,
+/// `lattice-relay-client`) can carry it over the wire; this kernel itself opens no socket.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Response {
     /// The command succeeded with no payload.
     Ok,

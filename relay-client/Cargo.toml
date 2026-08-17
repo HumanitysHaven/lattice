@@ -1,0 +1,22 @@
+[package]
+name = "lattice-relay-client"
+version = "0.0.1"
+edition = "2021"
+description = "Networked edge for lattice-core's queue::Relay trait: an authenticated simplex-queue client over Tor"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+name = "lattice_relay_client"
+path = "src/lib.rs"
+
+[dependencies]
+lattice-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", features = ["alloc"] }
+tokio = { version = "1", features = ["net", "io-util", "rt", "rt-multi-thread", "macros", "time"] }
+tor-rtcompat = { version = "0.45.0", default-features = false, features = ["tokio", "rustls"] }
+arti-client = { version = "0.45.0", default-features = false, features = ["tokio", "rustls", "static-sqlite"] }
+
+[dev-dependencies]
+lattice-relay = { path = "../relay" }
