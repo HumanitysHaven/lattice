@@ -310,6 +310,8 @@ impl SenderCapability {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
     fn blob(tag: u8) -> Blob {
@@ -405,6 +407,53 @@ mod tests {
         assert_ne!(q1.recipient_id, q2.recipient_id);
         assert_ne!(c1.sender_id, c2.sender_id);
         assert_ne!(q1.recipient_id, c1.sender_id, "recipient and sender ids are independent");
+    }
+
+    /// Adversarial-relay unlinkability instrumentation (roadmap 1.3 hardening item, `7.4`,
+    /// `S5`), scaled up: everything a relay is ever handed — every id and every public key,
+    /// across a whole population of queues, standing in for however many contact
+    /// relationships one or many real users might have — must be pairwise distinct. A single
+    /// repeated value anywhere would hand a hostile relay operator a free correlation: "these
+    /// two queues share a key, so they're the same party." This only reaches what the
+    /// protocol/data model can prove; live network-level traffic-analysis resistance
+    /// (circuit timing correlation and the like) is a separate, live-network concern covered
+    /// by `relay-client::tor::TorRelayClient` dialing a fresh isolated circuit per command,
+    /// not by anything testable here — see `docs/roadmap.md`'s 1.3 entry.
+    #[test]
+    fn no_id_or_key_is_ever_repeated_across_a_large_population_of_queues() {
+        let mut relay = InMemoryRelay::new();
+
+        let mut recipient_ids = HashSet::new();
+        let mut sender_ids = HashSet::new();
+        let mut recipient_vks = HashSet::new();
+        let mut sender_vks = HashSet::new();
+
+        for _ in 0..200 {
+            let (queue, cap) = RecipientQueue::create(&mut relay).unwrap();
+            assert!(recipient_ids.insert(queue.recipient_id), "recipient id repeated");
+            assert!(sender_ids.insert(cap.sender_id), "sender id repeated");
+            assert!(
+                recipient_vks.insert(queue.recipient_key.verifying_key().to_bytes()),
+                "recipient verifying key repeated"
+            );
+            assert!(
+                sender_vks.insert(cap.sender_key.verifying_key().to_bytes()),
+                "sender verifying key repeated"
+            );
+        }
+
+        // The four id/key spaces are independent of each other too: an id from one queue's
+        // recipient side never reappears as another queue's (or its own) sender-side value.
+        let all: HashSet<_> = recipient_ids
+            .iter()
+            .map(|id| id.to_vec())
+            .chain(sender_ids.iter().map(|id| id.to_vec()))
+            .collect();
+        assert_eq!(
+            all.len(),
+            recipient_ids.len() + sender_ids.len(),
+            "a recipient id doubled as a sender id"
+        );
     }
 
     #[test]

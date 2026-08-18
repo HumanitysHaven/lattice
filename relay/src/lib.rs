@@ -36,13 +36,19 @@ pub const MAX_FRAME: u32 = 64 * 1024;
 /// Accept connections on `listener` forever, serving each against the shared `relay` state.
 /// Returns only if `accept` itself fails; intended to be run as (or raced against, for
 /// shutdown) the process's main loop.
+///
+/// Deliberately logs nothing about *which* peer a connection was — no address, no
+/// timestamp correlated to a peer — even on error. A relay operator who never records that
+/// data can't hand it over, lose it in a breach, or use it themselves to link separate
+/// connections to one caller; this is as true of logs as it is of the protocol state
+/// itself (`7.4`, `S5`).
 pub async fn serve(listener: TcpListener, relay: Arc<Mutex<InMemoryRelay>>) -> std::io::Result<()> {
     loop {
-        let (stream, peer) = listener.accept().await?;
+        let (stream, _peer) = listener.accept().await?;
         let relay = Arc::clone(&relay);
         tokio::spawn(async move {
             if let Err(err) = serve_connection(stream, relay).await {
-                eprintln!("connection from {peer} ended: {err}");
+                eprintln!("a connection ended: {err}");
             }
         });
     }
