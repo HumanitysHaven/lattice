@@ -1,0 +1,23 @@
+[package]
+name = "lattice_ffi"
+version = "0.1.0"
+edition = "2021"
+description = "flutter_rust_bridge edge exposing lattice-core to the Flutter shell in app/"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.12.0"
+lattice-core = { path = "../../core" }
+
+# core's `getrandom` dependency has no OS CSPRNG to call on wasm32-unknown-unknown; it needs
+# the browser's Web Crypto API instead. Scoped to wasm32 only and kept here (not in core)
+# so core itself stays platform-agnostic — this is purely the web target's concern.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

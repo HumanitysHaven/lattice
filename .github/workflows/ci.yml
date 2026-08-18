@@ -44,3 +44,42 @@ jobs:
 
       - name: Doc tests
         run: cargo test --workspace --doc
+
+  # app/'s own Rust crate (app/rust, lattice_ffi) is covered by the job above via the
+  # workspace. This job covers the Dart/Flutter side plus the thing the Rust job can't catch:
+  # `flutter build web` alone reports success even if the compiled Rust bridge (app/web/pkg)
+  # is missing or stale — it just ships a UI that fails at runtime the first time it calls
+  # into Rust. `flutter_rust_bridge_codegen build-web` is the step that actually compiles
+  # lattice_ffi to wasm and is what makes that failure mode visible at build time instead.
+  # Running the integration test itself needs a real device/driver and isn't covered here yet.
+  flutter:
+    name: flutter analyze + build (incl. wasm bridge)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust (stable + nightly with rust-src, for the wasm build)
+        uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install nightly --component rust-src
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - run: cargo install flutter_rust_bridge_codegen --locked
+
+      - run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build the Rust bridge to wasm
+        run: flutter_rust_bridge_codegen build-web --release
+
+      - name: Build web (now actually exercises the compiled bridge)
+        run: flutter build web

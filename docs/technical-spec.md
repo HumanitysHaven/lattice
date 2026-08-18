@@ -395,12 +395,23 @@ verified by the test plan (§12).**
 
 ## 13. Open engineering questions
 
-1. Integrate SimpleX SMP via their core/SDK, or implement a Rust SMP client against their
-   relays? (Effort vs. control trade-off.)
-2. Run our own relays, rely on the public SimpleX relay network, or both? (Availability
-   vs. trust diversity — relays are untrusted either way.)
-3. Flutter-over-Rust FFI vs. fully native UI for the most security-sensitive screens.
-4. Group model: pure MLS vs. MLS for larger communities + 1:1 ratchet for small — where's
+Settled by what's built (kept here for the historical trade-off record):
+
+- ~~Integrate SimpleX SMP via their core/SDK, or implement a Rust SMP client against their
+  relays?~~ **Decided:** a custom Rust protocol (`core::queue`, modelled on SMP but not
+  wire-compatible with it), against a relay we run ourselves (`relay`/`relay-client`,
+  `docs/roadmap.md` 1.3) — not literal SimpleX SDK integration.
+- ~~Flutter-over-Rust FFI vs. fully native UI for the most security-sensitive screens.~~
+  **Decided:** Flutter, via `flutter_rust_bridge` (crate `lattice_ffi` in `app/rust`,
+  `docs/roadmap.md`). `lattice-core` itself has and gains no FFI-specific code — the bridge
+  crate is a thin translation edge, same pattern as the `relay-client` networked edge.
+
+Still open:
+
+1. Run our own relays, rely on the public SimpleX relay network, or both? (Availability
+   vs. trust diversity — relays are untrusted either way.) Practically settled toward
+   "our own" by what's built, but a public-relay-network option hasn't been ruled out.
+2. Group model: pure MLS vs. MLS for larger communities + 1:1 ratchet for small — where's
    the cutover?
-5. Offline/store-and-forward retention window on relays (deliverability vs. metadata).
+3. Offline/store-and-forward retention window on relays (deliverability vs. metadata).
 ```

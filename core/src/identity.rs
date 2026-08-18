@@ -51,6 +51,15 @@ impl VerifyingKey {
 pub struct RecoveryPhrase(Zeroizing<String>);
 
 impl RecoveryPhrase {
+    /// Wrap user-entered text (e.g. from a recovery/restore screen) as a candidate recovery
+    /// phrase. Unvalidated here — [`Identity::from_recovery`] is what checks it's a genuine
+    /// 24-word BIP39 mnemonic; this constructor only exists so a caller outside this module
+    /// can hand back what the user typed without going through [`Identity::recovery_phrase`]
+    /// first.
+    pub fn new(phrase: impl Into<String>) -> Self {
+        Self(Zeroizing::new(phrase.into()))
+    }
+
     /// The phrase as a single space-separated string, for display so the user can write it
     /// down. Treat as highly sensitive.
     pub fn as_str(&self) -> &str {
@@ -224,7 +233,7 @@ mod tests {
 
     #[test]
     fn invalid_recovery_phrase_is_rejected() {
-        let phrase = RecoveryPhrase(Zeroizing::new("not a valid mnemonic at all".to_string()));
+        let phrase = RecoveryPhrase::new("not a valid mnemonic at all");
         assert_eq!(Identity::from_recovery(&phrase, "x").unwrap_err(), IdentityError::InvalidPhrase);
     }
 

@@ -38,7 +38,8 @@ core/          Rust security-critical library (identity, trust, crypto, transpor
 relay-client/   Networked edge: implements core's queue::Relay trait over Tor (arti-client).
 relay/          Reference relay server: enforces core's queue protocol, reachable over the
                 network. Kept out of core/ so core's build stays pure and portable.
-app/            (planned) Flutter UI shell over the core via FFI.
+app/            Flutter UI shell. app/rust (crate lattice_ffi) is the flutter_rust_bridge
+                edge exposing core to it — core itself has no FFI-specific code.
 docs/           Threat model, technical spec, architecture, roadmap.
 ```
 
@@ -47,14 +48,18 @@ docs/           Threat model, technical spec, architecture, roadmap.
 The safety-critical core — trust engine, identity, encrypted-at-rest storage, the duress
 vault, invitation onboarding, forward-secret 1:1 (Olm) and small-group (Megolm) messaging,
 and the authenticated anonymous-queue transport protocol — is implemented and tested, along
-with a networked relay client/server pair over Tor. See
-[`docs/roadmap.md`](docs/roadmap.md) for the up-to-date milestone-by-milestone status; it is
-the source of truth for "what's actually done" over this file.
+with a networked relay client/server pair over Tor. A Flutter shell has started in `app/`,
+wired to `lattice-core` via `flutter_rust_bridge`; identity creation and recovery (Phase 1.1)
+are the first real screens. See [`docs/roadmap.md`](docs/roadmap.md) for the up-to-date
+milestone-by-milestone status; it is the source of truth for "what's actually done" over
+this file.
 
 ### Build & test
 
 ```bash
-cargo test --workspace
+cargo test --workspace   # core, relay, relay-client, and the FFI edge
+
+cd app && flutter analyze && flutter test integration_test  # the UI shell
 ```
 
 ## Planned technology (see the spec for rationale)
