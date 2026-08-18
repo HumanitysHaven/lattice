@@ -18,6 +18,8 @@
 use lattice_core::at_rest::KdfParams;
 use lattice_core::identity::{self, Identity, RecoveryPhrase};
 
+use crate::api::hex;
+
 /// What a "create" or "restore" screen needs to show the user immediately afterward.
 #[derive(Debug, Clone)]
 pub struct IdentitySummary {
@@ -33,14 +35,10 @@ pub struct IdentitySummary {
 
 fn summarize(identity: &Identity) -> IdentitySummary {
     IdentitySummary {
-        local_id_hex: hex_encode(&identity.local_id()),
+        local_id_hex: hex::encode(&identity.local_id()),
         nickname: identity.nickname().to_string(),
         recovery_words: identity.recovery_phrase().words().into_iter().map(String::from).collect(),
     }
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Generate a brand-new identity from OS randomness.

@@ -58,4 +58,62 @@ void main() {
       expect(find.text('Create a new identity'), findsOneWidget);
     },
   );
+
+  testWidgets('invite a contact -> complete it -> contact appears in the persisted trust graph', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const LatticeApp());
+    await tester.pumpAndSettle();
+
+    // Get to a signed-in state (abbreviated version of the create flow above).
+    await tester.tap(find.text('Create a new identity'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'inviter');
+    await tester.tap(find.text('Generate identity'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text("I've written it down"));
+    await tester.pumpAndSettle();
+    final passphraseFields = find.byType(TextField);
+    await tester.enterText(passphraseFields.at(0), 'contacts test passphrase');
+    await tester.enterText(passphraseFields.at(1), 'contacts test passphrase');
+    await tester.tap(find.text('Save and continue'));
+    await tester.pumpAndSettle();
+
+    // No contacts yet.
+    await tester.tap(find.text('Contacts'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('No contacts yet'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // Issue an invite and complete it with a stand-in fingerprint (16 bytes of 0xAB), since
+    // there's no real second device/network handshake wired into this UI yet.
+    await tester.tap(find.text('Invite a contact'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Create invite (valid 1 hour)'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Invite token'), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, "Invitee's fingerprint (from their signed-in screen)"),
+      'ab' * 16,
+    );
+    await tester.tap(find.text('Complete invite'));
+    await tester.pumpAndSettle();
+    expect(find.text('Added as a contact.'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // The new contact shows up, persisted through the sealed trust graph.
+    await tester.tap(find.text('Contacts'));
+    await tester.pumpAndSettle();
+    expect(find.text('ab' * 16), findsOneWidget);
+    expect(find.text('Invited'), findsOneWidget);
+
+    // Clean up.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Forget this device (testing)'));
+    await tester.pumpAndSettle();
+  });
 }

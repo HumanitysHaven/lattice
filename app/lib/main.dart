@@ -2,8 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+// ignore: implementation_imports, invalid_use_of_internal_member
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart' show PlatformInt64, PlatformInt64Util;
 import 'package:path_provider/path_provider.dart';
+import 'package:app/src/rust/api/contacts.dart';
 import 'package:app/src/rust/api/identity.dart';
+import 'package:app/src/rust/api/invite.dart';
 import 'package:app/src/rust/frb_generated.dart';
 
 /// Where the passphrase-sealed identity lives on this device. Plain filesystem storage for
@@ -12,6 +16,19 @@ Future<String> _vaultPath() async {
   final dir = await getApplicationSupportDirectory();
   return '${dir.path}/identity.vault';
 }
+
+/// Where the passphrase-sealed trust graph (contacts) lives, alongside the identity vault.
+Future<String> _contactsVaultPath() async {
+  final dir = await getApplicationSupportDirectory();
+  return '${dir.path}/contacts.vault';
+}
+
+/// `core`'s timestamps are Unix *seconds* throughout (see e.g. `trust::TrustGraph`); Dart's
+/// clock is milliseconds, so every call site converts here rather than risk a stray 1000x
+/// mismatch reaching the FFI boundary. Returns `PlatformInt64` (an `int` natively, a `BigInt`
+/// on web — `PlatformInt64Util.from` is the portable way to build one from a plain `int`,
+/// the same helper the generated bindings themselves use).
+PlatformInt64 _nowUnixSeconds() => PlatformInt64Util.from(DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
 Future<void> main() async {
   await RustLib.init();
@@ -356,7 +373,9 @@ class _SetPassphraseScreenState extends State<SetPassphraseScreen> {
       }
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => SignedInScreen(summary: widget.summary)),
+        MaterialPageRoute(
+          builder: (_) => SignedInScreen(summary: widget.summary, passphrase: _passphraseController.text),
+        ),
         (route) => false,
       );
     } catch (e) {
@@ -435,7 +454,9 @@ class _UnlockScreenState extends State<UnlockScreen> {
       final sealed = File(widget.vaultPath).readAsBytesSync();
       final summary = unlockIdentity(passphrase: _passphraseController.text, sealed: sealed);
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => SignedInScreen(summary: summary)),
+        MaterialPageRoute(
+          builder: (_) => SignedInScreen(summary: summary, passphrase: _passphraseController.text),
+        ),
       );
     } catch (e) {
       setState(() => _error = 'Could not unlock: wrong passphrase, or this file was tampered with.');
@@ -477,19 +498,29 @@ class _UnlockScreenState extends State<UnlockScreen> {
   }
 }
 
-/// The signed-in home state: not a real app yet (no messaging, no trust graph UI — those
-/// are unbuilt), just confirmation that the identity pipe works end to end, plus a way to
-/// clear it for testing.
-class SignedInScreen extends StatelessWidget {
-  const SignedInScreen({super.key, required this.summary});
+/// The signed-in home state. Owns the one [InviteBookHandle] for the app session (see that
+/// module's docs for why invites are session-lived, unlike identity/contacts) and the
+/// passphrase used to seal the contacts vault, so the invite/contacts screens below don't
+/// each need to ask for it again. Messaging and trust-tier UI are still unbuilt.
+class SignedInScreen extends StatefulWidget {
+  const SignedInScreen({super.key, required this.summary, required this.passphrase});
 
   final IdentitySummary summary;
+  final String passphrase;
+
+  @override
+  State<SignedInScreen> createState() => _SignedInScreenState();
+}
+
+class _SignedInScreenState extends State<SignedInScreen> {
+  final _inviteBook = InviteBookHandle();
 
   Future<void> _forgetDevice(BuildContext context) async {
     if (!kIsWeb) {
-      final path = await _vaultPath();
-      final file = File(path);
-      if (file.existsSync()) await file.delete();
+      for (final path in [await _vaultPath(), await _contactsVaultPath()]) {
+        final file = File(path);
+        if (file.existsSync()) await file.delete();
+      }
     }
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
@@ -510,14 +541,36 @@ class SignedInScreen extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Signed in as ${summary.nickname}'),
+                Text('Signed in as ${widget.summary.nickname}'),
                 const SizedBox(height: 8),
-                Text(summary.localIdHex, style: const TextStyle(fontFamily: 'monospace')),
+                Text(widget.summary.localIdHex, style: const TextStyle(fontFamily: 'monospace')),
+                const SizedBox(height: 32),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => InviteScreen(inviteBook: _inviteBook, passphrase: widget.passphrase),
+                    ),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text('Invite a contact'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => ContactsScreen(passphrase: widget.passphrase)),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text('Contacts'),
+                  ),
+                ),
                 const SizedBox(height: 32),
                 const Text(
-                  'Nothing else is built yet — no contacts, no messaging, no trust graph UI. '
-                  'This screen only proves identity creation, local encrypted storage, and '
-                  'unlock all work end to end.',
+                  'Messaging and the trust-tier UI are still unbuilt. This screen proves '
+                  'identity, local encrypted storage, invites, and contacts all work end to '
+                  'end through lattice-core.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 32),
@@ -529,6 +582,186 @@ class SignedInScreen extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Issue invites and complete pending ones (see `invite.rs`'s module docs: only the issuer
+/// acts here — completing means manually entering the invitee's fingerprint, since the real
+/// network handshake isn't wired into this UI yet).
+class InviteScreen extends StatefulWidget {
+  const InviteScreen({super.key, required this.inviteBook, required this.passphrase});
+
+  final InviteBookHandle inviteBook;
+  final String passphrase;
+
+  @override
+  State<InviteScreen> createState() => _InviteScreenState();
+}
+
+class _PendingInvite {
+  _PendingInvite(this.tokenText);
+  final String tokenText;
+  final _fingerprintController = TextEditingController();
+  bool completed = false;
+}
+
+class _InviteScreenState extends State<InviteScreen> {
+  final _pending = <_PendingInvite>[];
+  String? _error;
+
+  void _createInvite() {
+    setState(() => _error = null);
+    try {
+      final token = widget.inviteBook.issue(ttlSecs: PlatformInt64Util.from(3600), now: _nowUnixSeconds());
+      setState(() => _pending.add(_PendingInvite(token)));
+    } catch (e) {
+      setState(() => _error = e.toString());
+    }
+  }
+
+  Future<void> _complete(_PendingInvite invite) async {
+    setState(() => _error = null);
+    try {
+      final path = await _contactsVaultPath();
+      final file = File(path);
+      final existing = !kIsWeb && file.existsSync() ? await file.readAsBytes() : null;
+
+      final result = widget.inviteBook.complete(
+        tokenText: invite.tokenText,
+        contactFingerprintHex: invite._fingerprintController.text,
+        existingSealedGraph: existing,
+        passphrase: widget.passphrase,
+        now: _nowUnixSeconds(),
+      );
+
+      if (!kIsWeb) await file.writeAsBytes(result.sealedGraph);
+      setState(() => invite.completed = true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact added.')));
+    } catch (e) {
+      setState(() => _error = 'Could not complete: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Invite a contact')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              const Text(
+                'Invites are personal and out-of-band: share the token below with someone you '
+                'trust directly (in person, an existing secure chat, ...) — there is no '
+                'discovery of strangers.',
+              ),
+              const SizedBox(height: 16),
+              FilledButton(onPressed: _createInvite, child: const Text('Create invite (valid 1 hour)')),
+              if (_error != null) ...[
+                const SizedBox(height: 16),
+                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              ],
+              const SizedBox(height: 24),
+              for (final invite in _pending) _PendingInviteCard(invite: invite, onComplete: () => _complete(invite)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingInviteCard extends StatelessWidget {
+  const _PendingInviteCard({required this.invite, required this.onComplete});
+
+  final _PendingInvite invite;
+  final VoidCallback onComplete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('Invite token (share this):'),
+            const SizedBox(height: 4),
+            SelectableText(invite.tokenText, style: const TextStyle(fontFamily: 'monospace')),
+            const SizedBox(height: 12),
+            if (invite.completed)
+              const Text('Added as a contact.')
+            else ...[
+              TextField(
+                controller: invite._fingerprintController,
+                decoration: const InputDecoration(
+                  labelText: "Invitee's fingerprint (from their signed-in screen)",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              FilledButton(onPressed: onComplete, child: const Text('Complete invite')),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Lists contacts from the persisted, passphrase-sealed trust graph.
+class ContactsScreen extends StatefulWidget {
+  const ContactsScreen({super.key, required this.passphrase});
+
+  final String passphrase;
+
+  @override
+  State<ContactsScreen> createState() => _ContactsScreenState();
+}
+
+class _ContactsScreenState extends State<ContactsScreen> {
+  late Future<List<ContactSummary>> _contacts;
+
+  @override
+  void initState() {
+    super.initState();
+    _contacts = _load();
+  }
+
+  Future<List<ContactSummary>> _load() async {
+    final path = await _contactsVaultPath();
+    final file = File(path);
+    final sealed = !kIsWeb && file.existsSync() ? await file.readAsBytes() : null;
+    return listContacts(sealed: sealed, passphrase: widget.passphrase, now: _nowUnixSeconds());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Contacts')),
+      body: FutureBuilder<List<ContactSummary>>(
+        future: _contacts,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasError) return Center(child: Text('Could not load contacts: ${snapshot.error}'));
+          final contacts = snapshot.data!;
+          if (contacts.isEmpty) {
+            return const Center(child: Text('No contacts yet — invite someone to get started.'));
+          }
+          return ListView.builder(
+            itemCount: contacts.length,
+            itemBuilder: (context, i) => ListTile(
+              title: Text(contacts[i].fingerprintHex, style: const TextStyle(fontFamily: 'monospace')),
+              subtitle: Text(contacts[i].tier),
+            ),
+          );
+        },
       ),
     );
   }

@@ -3,7 +3,9 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/contacts.dart';
 import 'api/identity.dart';
+import 'api/invite.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -67,7 +69,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1720613914;
+  int get rustContentHash => 41714345;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -79,7 +81,30 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  CompletedInvite crateApiInviteInviteBookHandleComplete({
+    required InviteBookHandle that,
+    required String tokenText,
+    required String contactFingerprintHex,
+    Uint8List? existingSealedGraph,
+    required String passphrase,
+    required PlatformInt64 now,
+  });
+
+  String crateApiInviteInviteBookHandleIssue({
+    required InviteBookHandle that,
+    required PlatformInt64 ttlSecs,
+    required PlatformInt64 now,
+  });
+
+  InviteBookHandle crateApiInviteInviteBookHandleNew();
+
   IdentitySummary crateApiIdentityCreateIdentity({required String nickname});
+
+  List<ContactSummary> crateApiContactsListContacts({
+    Uint8List? sealed,
+    required String passphrase,
+    required PlatformInt64 now,
+  });
 
   IdentitySummary crateApiIdentityRestoreIdentity({
     required String recoveryPhrase,
@@ -96,6 +121,15 @@ abstract class RustLibApi extends BaseApi {
     required String passphrase,
     required List<int> sealed,
   });
+
+  RustArcIncrementStrongCountFnType
+  get rust_arc_increment_strong_count_InviteBookHandle;
+
+  RustArcDecrementStrongCountFnType
+  get rust_arc_decrement_strong_count_InviteBookHandle;
+
+  CrossPlatformFinalizerArg
+  get rust_arc_decrement_strong_count_InviteBookHandlePtr;
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -107,13 +141,126 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  CompletedInvite crateApiInviteInviteBookHandleComplete({
+    required InviteBookHandle that,
+    required String tokenText,
+    required String contactFingerprintHex,
+    Uint8List? existingSealedGraph,
+    required String passphrase,
+    required PlatformInt64 now,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+            that,
+            serializer,
+          );
+          sse_encode_String(tokenText, serializer);
+          sse_encode_String(contactFingerprintHex, serializer);
+          sse_encode_opt_list_prim_u_8_strict(existingSealedGraph, serializer);
+          sse_encode_String(passphrase, serializer);
+          sse_encode_i_64(now, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 1)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_completed_invite,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiInviteInviteBookHandleCompleteConstMeta,
+        argValues: [
+          that,
+          tokenText,
+          contactFingerprintHex,
+          existingSealedGraph,
+          passphrase,
+          now,
+        ],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiInviteInviteBookHandleCompleteConstMeta =>
+      const TaskConstMeta(
+        debugName: "InviteBookHandle_complete",
+        argNames: [
+          "that",
+          "tokenText",
+          "contactFingerprintHex",
+          "existingSealedGraph",
+          "passphrase",
+          "now",
+        ],
+      );
+
+  @override
+  String crateApiInviteInviteBookHandleIssue({
+    required InviteBookHandle that,
+    required PlatformInt64 ttlSecs,
+    required PlatformInt64 now,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+            that,
+            serializer,
+          );
+          sse_encode_i_64(ttlSecs, serializer);
+          sse_encode_i_64(now, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 2)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiInviteInviteBookHandleIssueConstMeta,
+        argValues: [that, ttlSecs, now],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiInviteInviteBookHandleIssueConstMeta =>
+      const TaskConstMeta(
+        debugName: "InviteBookHandle_issue",
+        argNames: ["that", "ttlSecs", "now"],
+      );
+
+  @override
+  InviteBookHandle crateApiInviteInviteBookHandleNew() {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 3)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData:
+              sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiInviteInviteBookHandleNewConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiInviteInviteBookHandleNewConstMeta =>
+      const TaskConstMeta(debugName: "InviteBookHandle_new", argNames: []);
+
+  @override
   IdentitySummary crateApiIdentityCreateIdentity({required String nickname}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(nickname, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 1)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 4)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_identity_summary,
@@ -130,6 +277,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "create_identity", argNames: ["nickname"]);
 
   @override
+  List<ContactSummary> crateApiContactsListContacts({
+    Uint8List? sealed,
+    required String passphrase,
+    required PlatformInt64 now,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_opt_list_prim_u_8_strict(sealed, serializer);
+          sse_encode_String(passphrase, serializer);
+          sse_encode_i_64(now, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_contact_summary,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiContactsListContactsConstMeta,
+        argValues: [sealed, passphrase, now],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiContactsListContactsConstMeta =>
+      const TaskConstMeta(
+        debugName: "list_contacts",
+        argNames: ["sealed", "passphrase", "now"],
+      );
+
+  @override
   IdentitySummary crateApiIdentityRestoreIdentity({
     required String recoveryPhrase,
     required String nickname,
@@ -140,7 +319,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(recoveryPhrase, serializer);
           sse_encode_String(nickname, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 2)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 6)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_identity_summary,
@@ -172,7 +351,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_list_String(recoveryWords, serializer);
           sse_encode_String(nickname, serializer);
           sse_encode_String(passphrase, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 3)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 7)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -202,7 +381,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(passphrase, serializer);
           sse_encode_list_prim_u_8_loose(sealed, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 4)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 8)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_identity_summary,
@@ -221,10 +400,75 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         argNames: ["passphrase", "sealed"],
       );
 
+  RustArcIncrementStrongCountFnType
+  get rust_arc_increment_strong_count_InviteBookHandle => wire
+      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle;
+
+  RustArcDecrementStrongCountFnType
+  get rust_arc_decrement_strong_count_InviteBookHandle => wire
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle;
+
+  @protected
+  InviteBookHandle
+  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return InviteBookHandleImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  InviteBookHandle
+  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return InviteBookHandleImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  InviteBookHandle
+  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return InviteBookHandleImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
   @protected
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
+  }
+
+  @protected
+  CompletedInvite dco_decode_completed_invite(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return CompletedInvite(
+      sealedGraph: dco_decode_list_prim_u_8_strict(arr[0]),
+      contacts: dco_decode_list_contact_summary(arr[1]),
+    );
+  }
+
+  @protected
+  ContactSummary dco_decode_contact_summary(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ContactSummary(
+      fingerprintHex: dco_decode_String(arr[0]),
+      tier: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeI64(raw);
   }
 
   @protected
@@ -247,6 +491,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ContactSummary> dco_decode_list_contact_summary(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_contact_summary).toList();
+  }
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as List<int>;
@@ -259,9 +509,63 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_prim_u_8_strict(raw);
+  }
+
+  @protected
   int dco_decode_u_8(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
+  }
+
+  @protected
+  void dco_decode_unit(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return;
+  }
+
+  @protected
+  BigInt dco_decode_usize(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
+  }
+
+  @protected
+  InviteBookHandle
+  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return InviteBookHandleImpl.frbInternalSseDecode(
+      sse_decode_usize(deserializer),
+      sse_decode_i_32(deserializer),
+    );
+  }
+
+  @protected
+  InviteBookHandle
+  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return InviteBookHandleImpl.frbInternalSseDecode(
+      sse_decode_usize(deserializer),
+      sse_decode_i_32(deserializer),
+    );
+  }
+
+  @protected
+  InviteBookHandle
+  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return InviteBookHandleImpl.frbInternalSseDecode(
+      sse_decode_usize(deserializer),
+      sse_decode_i_32(deserializer),
+    );
   }
 
   @protected
@@ -269,6 +573,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
+  }
+
+  @protected
+  CompletedInvite sse_decode_completed_invite(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_sealedGraph = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_contacts = sse_decode_list_contact_summary(deserializer);
+    return CompletedInvite(
+      sealedGraph: var_sealedGraph,
+      contacts: var_contacts,
+    );
+  }
+
+  @protected
+  ContactSummary sse_decode_contact_summary(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_fingerprintHex = sse_decode_String(deserializer);
+    var var_tier = sse_decode_String(deserializer);
+    return ContactSummary(fingerprintHex: var_fingerprintHex, tier: var_tier);
+  }
+
+  @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getPlatformInt64();
   }
 
   @protected
@@ -297,6 +626,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ContactSummary> sse_decode_list_contact_summary(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ContactSummary>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_contact_summary(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -311,9 +654,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_prim_u_8_strict(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   int sse_decode_u_8(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint8();
+  }
+
+  @protected
+  void sse_decode_unit(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+  }
+
+  @protected
+  BigInt sse_decode_usize(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
   }
 
   @protected
@@ -329,9 +694,74 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void
+  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+    InviteBookHandle self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+      (self as InviteBookHandleImpl).frbInternalSseEncode(move: true),
+      serializer,
+    );
+  }
+
+  @protected
+  void
+  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+    InviteBookHandle self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+      (self as InviteBookHandleImpl).frbInternalSseEncode(move: false),
+      serializer,
+    );
+  }
+
+  @protected
+  void
+  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerInviteBookHandle(
+    InviteBookHandle self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+      (self as InviteBookHandleImpl).frbInternalSseEncode(move: null),
+      serializer,
+    );
+  }
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_completed_invite(
+    CompletedInvite self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_prim_u_8_strict(self.sealedGraph, serializer);
+    sse_encode_list_contact_summary(self.contacts, serializer);
+  }
+
+  @protected
+  void sse_encode_contact_summary(
+    ContactSummary self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.fingerprintHex, serializer);
+    sse_encode_String(self.tier, serializer);
+  }
+
+  @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putPlatformInt64(self);
   }
 
   @protected
@@ -351,6 +781,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_String(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_contact_summary(
+    List<ContactSummary> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_contact_summary(item, serializer);
     }
   }
 
@@ -377,9 +819,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_list_prim_u_8_strict(
+    Uint8List? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_prim_u_8_strict(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_u_8(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self);
+  }
+
+  @protected
+  void sse_encode_unit(void self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+  }
+
+  @protected
+  void sse_encode_usize(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
   }
 
   @protected
@@ -393,4 +859,56 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint8(self ? 1 : 0);
   }
+}
+
+@sealed
+class InviteBookHandleImpl extends RustOpaque implements InviteBookHandle {
+  // Not to be used by end users
+  InviteBookHandleImpl.frbInternalDcoDecode(List<dynamic> wire)
+    : super.frbInternalDcoDecode(wire, _kStaticData);
+
+  // Not to be used by end users
+  InviteBookHandleImpl.frbInternalSseDecode(
+    BigInt ptr,
+    int externalSizeOnNative,
+  ) : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
+
+  static final _kStaticData = RustArcStaticData(
+    rustArcIncrementStrongCount:
+        RustLib.instance.api.rust_arc_increment_strong_count_InviteBookHandle,
+    rustArcDecrementStrongCount:
+        RustLib.instance.api.rust_arc_decrement_strong_count_InviteBookHandle,
+    rustArcDecrementStrongCountPtr: RustLib
+        .instance
+        .api
+        .rust_arc_decrement_strong_count_InviteBookHandlePtr,
+  );
+
+  /// Complete a pending invite: validate `token_text` against this issuer's own
+  /// bookkeeping (rejecting it if already used, expired, or unknown — same as
+  /// [`InviteBook::redeem`](lattice_core::invite::InviteBook::redeem)), then add the
+  /// invitee as a Tier-0 contact under `contact_fingerprint_hex` in the trust graph
+  /// (`existing_sealed_graph`, or a fresh one if this is the first contact).
+  CompletedInvite complete({
+    required String tokenText,
+    required String contactFingerprintHex,
+    Uint8List? existingSealedGraph,
+    required String passphrase,
+    required PlatformInt64 now,
+  }) => RustLib.instance.api.crateApiInviteInviteBookHandleComplete(
+    that: this,
+    tokenText: tokenText,
+    contactFingerprintHex: contactFingerprintHex,
+    existingSealedGraph: existingSealedGraph,
+    passphrase: passphrase,
+    now: now,
+  );
+
+  /// Issue a fresh invite valid for `ttl_secs` from `now`, returned as hex text to share.
+  String issue({required PlatformInt64 ttlSecs, required PlatformInt64 now}) =>
+      RustLib.instance.api.crateApiInviteInviteBookHandleIssue(
+        that: this,
+        ttlSecs: ttlSecs,
+        now: now,
+      );
 }
