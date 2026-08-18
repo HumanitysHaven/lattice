@@ -25,6 +25,31 @@ IdentitySummary restoreIdentity({
   nickname: nickname,
 );
 
+/// Seal the identity described by `recovery_words`/`nickname` (as already returned by
+/// [`create_identity`] or [`restore_identity`]) under `passphrase`, so the caller can write
+/// the result to local storage and skip the create/restore screens on the next launch. The
+/// passphrase protects this local copy; the recovery phrase remains the real backup.
+Uint8List sealCurrentIdentity({
+  required List<String> recoveryWords,
+  required String nickname,
+  required String passphrase,
+}) => RustLib.instance.api.crateApiIdentitySealCurrentIdentity(
+  recoveryWords: recoveryWords,
+  nickname: nickname,
+  passphrase: passphrase,
+);
+
+/// Open a previously-sealed identity (bytes read by the caller from local storage) under
+/// `passphrase`. Fails the same way for a wrong passphrase as for a tampered/corrupted file
+/// — no oracle beyond "it didn't open".
+IdentitySummary unlockIdentity({
+  required String passphrase,
+  required List<int> sealed,
+}) => RustLib.instance.api.crateApiIdentityUnlockIdentity(
+  passphrase: passphrase,
+  sealed: sealed,
+);
+
 /// What a "create" or "restore" screen needs to show the user immediately afterward.
 class IdentitySummary {
   /// The local, non-networkable handle for this identity, as lowercase hex — a short,

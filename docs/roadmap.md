@@ -35,7 +35,7 @@ vetted technical reviewers using throwaway data.
 
 | # | Milestone | Exit criteria |
 |---|-----------|---------------|
-| 1.1 | Identity & recovery | Real Ed25519 signing identity ✅ + 24-word BIP39 recovery restores the same identity ✅ + sign/verify ✅; no PII anywhere ✅ (`7.1`). libsignal Double-Ratchet identity key deferred to 1.4 (reuses the same seed). **First real UI screens** ✅: `app/` (Flutter, wired via `flutter_rust_bridge`/`app/rust`) has a create-identity and restore-identity screen calling straight into this module — the first vertical slice of the UI shell, proving the FFI pipe end to end |
+| 1.1 | Identity & recovery | Real Ed25519 signing identity ✅ + 24-word BIP39 recovery restores the same identity ✅ + sign/verify ✅; no PII anywhere ✅ (`7.1`). libsignal Double-Ratchet identity key deferred to 1.4 (reuses the same seed). **Local persistence** ✅: `identity::seal_identity`/`open_identity` seal an identity (as its recovery phrase + nickname) under a passphrase via the existing `at_rest` vault (1.2) — the local, at-rest analogue of the recovery phrase, which remains the only cross-device/disaster-recovery backup. **Real UI screens** ✅: `app/` (Flutter, wired via `flutter_rust_bridge`/`app/rust`) has create-identity, restore-identity, set-passphrase, unlock, and signed-in screens, all calling straight into this module end to end — create/restore an identity, persist it locally, relaunch into an unlock prompt instead of losing it, and a "forget this device" wipe for testing |
 | 1.2 | Encrypted local store | Done ✅ (pure-Rust at-rest vault instead of SQLCipher): Argon2id-derived key + XChaCha20-Poly1305 AEAD seal of the serialized store via `at_rest`/`persistence::seal_graph`; header (incl. KDF params) authenticated; untrusted KDF params bounded; nothing plaintext at rest, wrong passphrase/tamper rejected (`7.3`). Note: deviates from spec's SQLCipher choice to keep the core pure/hermetic; a queryable encrypted DB can layer over the same key later. Duress/decoy vault is 1.8 |
 | 1.3 | Anonymous-queue transport | Done ✅. (a) `framing`: every payload is padded into a fixed-size block (and optionally AEAD-sealed) so all blobs are equal-sized — a relay sees no length signal. (b) `queue`: the SMP-style **authenticated simplex-queue protocol** — identity-free random recipient/sender queue ids, recipient/sender **capability separation** (a contact who can write cannot read, and never learns the recipient id), Ed25519-signed domain-separated commands, plus a reference `InMemoryRelay` that enforces it all; verified end-to-end (Olm message delivered through an authenticated queue; relay holds only opaque equal-sized blobs). (c) Networked relay edges: the workspace has `relay` (a small binary — `InMemoryRelay` behind a length-prefixed TCP listener, shared across connections, no plaintext ever held) and `relay-client` (implements `queue::Relay` over the network) with two transports — `plain::PlainTcpRelayClient` (dev/test only, no anonymity) and `tor::TorRelayClient` (production: `arti-client`, the Tor Project's own pure-Rust client, `static-sqlite` + `rustls` so no system Tor/OpenSSL dependency; every command dials a fresh **isolated Tor circuit**, a superset of "per-queue" unlinkability). **Fully verified end-to-end** ✅ (2026-08-18): the wire protocol over real loopback TCP (`relay-client/tests/plain_relay.rs`), live Tor bootstrap on a real machine (`tor_bootstrap_smoke_test`), and the complete path — create/send/receive round-tripped byte-for-byte through a `lattice-relay` deployed on a real routable host, reached over three independent live Tor circuits (`tor_relay_round_trip`). **Adversarial-relay unlinkability instrumentation added** ✅: `core/src/queue.rs`'s test module and `core/tests/relay_unlinkability.rs` model a relay operator who sees everything it's ever given and assert what the protocol/data model alone prevents it from exploiting — no id/key repeats across a large queue population, no length signal across users, capability separation holding at scale, and no exploitable per-connection state (interleaved multi-user traffic never cross-talks, since `submit` is stateless per call). Explicitly scoped: this proves *protocol-level* unlinkability, not network-level traffic-analysis resistance (circuit timing correlation and similar) against a live observing adversary — that needs live-Tor instrumentation, which `TorRelayClient`'s per-command isolated circuit is the *mechanism* for but no unit/integration test can verify. Remaining: decide whether `lattice-relay` itself should also be reachable as a Tor onion service (currently clearnet-listener-only — clients dial it via Tor, but the relay's own address isn't hidden), and that live traffic-analysis verification (`7.4`, `S5`) |
 | 1.4 | 1:1 messaging | Done ✅ (`messaging`): forward-secret 1:1 channels over the audited Olm Double Ratchet (`vodozemac`), with pre-key handshake, ratchet advance, out-of-order tolerance, and disappearing TTL carried **inside** the encrypted payload (`7.3`). Wire = `type ‖ olm-ciphertext`, padded to a fixed block (`framing::pad`) so the relay sees equal-sized opaque blobs. **Deviation:** spec named libsignal, which is not consumable as a hermetic Rust crate (git-only, AGPL, BoringSSL); vodozemac is the audited (Least Authority), pure-Rust, crates.io Double Ratchet and also gives us Megolm for 1.7. Remaining: bind the Olm handshake to the verified invite/identity, and derive the Olm account from the same on-device seed as the signing identity |
@@ -123,11 +123,16 @@ app disguise) or the two items called out below (the onion service decision, MLS
 The Flutter shell (`app/`) has started, resolving the spec's open Flutter-vs-native question
 (`technical-spec.md` §13): a `flutter_rust_bridge` edge (`app/rust`, crate `lattice_ffi`)
 exposes `lattice-core` with no FFI-specific code needed in `core` itself, same pattern as the
-`relay-client` networked edge. First real screens: create-identity and restore-identity (1.1),
-proving the pipe end to end — verified compiling for both web (wasm) and native targets, with
-a passing widget integration test (`app/integration_test`). Every other screen (invite/QR,
-messaging, trust/tiers, duress vault) is still unbuilt; this is a first vertical slice, not a
-UI pass over the whole app.
+`relay-client` networked edge. First real screens (1.1): create-identity, restore-identity,
+set-passphrase, unlock, and signed-in, proving the pipe end to end including local
+persistence — an identity created or restored now survives an app relaunch (via
+`identity::seal_identity`/`open_identity`, Dart owning the actual file I/O through
+`path_provider`), rather than being thrown away every run. Verified compiling for both web
+(wasm) and native targets, with a widget integration test covering the full create → persist
+→ relaunch → unlock → forget-device cycle (`app/integration_test`) — though, as with the rest
+of this crate, it needs a real device/browser to actually run, not runnable in a headless
+sandbox. Every other screen (invite/QR, messaging, trust/tiers, duress vault) is still
+unbuilt; this is a vertical slice through 1.1/1.2, not a UI pass over the whole app.
 
 ## Immediate next actions
 
@@ -139,6 +144,5 @@ UI pass over the whole app.
    relay operator's address too) or clearnet-plus-Tor-dial is sufficient for the threat model.
 4. Evaluate an MLS (RFC 9420) upgrade for groups once they need to scale beyond the small,
    fully-connected shape Megolm suits.
-5. Extend `app/`: wire identity creation into the encrypted local store (1.2) so it persists
-   across app restarts instead of being thrown away each run, then the invite/QR onboarding
-   screen (1.5).
+5. Extend `app/`: the invite/QR onboarding screen (1.5) is the natural next slice — it needs
+   the trust engine and vouching wired into the UI too, not just identity.

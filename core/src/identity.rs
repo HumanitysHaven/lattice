@@ -14,9 +14,11 @@ use core::fmt;
 
 use bip39::Mnemonic;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey as DalekVerifyingKey};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
+use crate::at_rest::{self, KdfParams, VaultError};
 use crate::trust::ContactId;
 
 /// Length of the identity seed: 32 bytes — simultaneously the Ed25519 secret-seed size and
@@ -164,6 +166,56 @@ impl Identity {
     }
 }
 
+/// What's persisted to reconstruct an [`Identity`] later: the recovery phrase (which fully
+/// determines the signing key) plus the local nickname. Never held outside
+/// [`seal_identity`]/[`open_identity`] — the plaintext form is zeroized immediately after
+/// use, same discipline as [`crate::persistence::seal_graph`].
+#[derive(Serialize, Deserialize)]
+struct StoredIdentity {
+    recovery_phrase: String,
+    nickname: String,
+}
+
+/// Error sealing or opening a stored identity.
+#[derive(Debug, PartialEq, Eq)]
+pub enum IdentityStoreError {
+    /// The encrypted vault layer failed (wrong passphrase, tamper, malformed).
+    Vault(VaultError),
+    /// The decrypted bytes are not a valid serialized identity (or, in principle, the
+    /// recovery phrase inside them is no longer a valid BIP39 mnemonic — unreachable in
+    /// practice, since [`seal_identity`] only ever writes what [`Identity::recovery_phrase`]
+    /// itself produced, and the AEAD tag would already have caught tampering).
+    Codec,
+}
+
+/// Seal `identity` for storage under `passphrase`, so a device can persist it across
+/// restarts instead of requiring the recovery phrase to be retyped every time (`7.1`,
+/// `7.6`). This is the local, at-rest analogue of the recovery phrase — the phrase itself
+/// remains the only cross-device/disaster-recovery backup, and nothing here is a substitute
+/// for writing it down.
+pub fn seal_identity(
+    passphrase: &[u8],
+    identity: &Identity,
+    params: KdfParams,
+) -> Result<Vec<u8>, IdentityStoreError> {
+    let stored = StoredIdentity {
+        recovery_phrase: identity.recovery_phrase().as_str().to_string(),
+        nickname: identity.nickname().to_string(),
+    };
+    let plaintext = Zeroizing::new(postcard::to_allocvec(&stored).map_err(|_| IdentityStoreError::Codec)?);
+    at_rest::seal(passphrase, &plaintext, params).map_err(IdentityStoreError::Vault)
+}
+
+/// Open and reconstruct an [`Identity`] from a blob produced by [`seal_identity`]. Fails
+/// with [`IdentityStoreError::Vault`] on a wrong passphrase or any tampering — the same
+/// no-oracle-beyond-AEAD-failure property [`crate::at_rest`] gives every caller.
+pub fn open_identity(passphrase: &[u8], sealed: &[u8]) -> Result<Identity, IdentityStoreError> {
+    let plaintext = Zeroizing::new(at_rest::open(passphrase, sealed).map_err(IdentityStoreError::Vault)?);
+    let stored: StoredIdentity = postcard::from_bytes(&plaintext).map_err(|_| IdentityStoreError::Codec)?;
+    let phrase = RecoveryPhrase::new(stored.recovery_phrase);
+    Identity::from_recovery(&phrase, &stored.nickname).map_err(|_| IdentityStoreError::Codec)
+}
+
 /// Derive a stable, non-networkable local handle from a verifying key. Domain-separated so
 /// it can never collide with a hash used elsewhere; truncated to the 16-byte `ContactId`.
 fn local_id_from_verifying_key(vk_bytes: &[u8; 32]) -> ContactId {
@@ -250,5 +302,52 @@ mod tests {
         assert!(rendered.contains("redacted"), "secret key must not appear in Debug");
         assert!(rendered.contains("nick"), "non-secret fields are fine to show");
         assert_eq!(format!("{:?}", id.recovery_phrase()), "RecoveryPhrase(<redacted>)");
+    }
+
+    /// Cheap KDF parameters so these tests are fast — never use these in production.
+    const TEST_KDF: KdfParams = KdfParams { m_cost_kib: 64, t_cost: 1, p_cost: 1 };
+
+    #[test]
+    fn sealing_and_opening_round_trips_to_the_same_identity() {
+        let id = Identity::generate("alice").unwrap();
+        let sealed = seal_identity(b"correct horse", &id, TEST_KDF).unwrap();
+        let restored = open_identity(b"correct horse", &sealed).unwrap();
+
+        assert_eq!(restored.local_id(), id.local_id());
+        assert_eq!(restored.verifying_key(), id.verifying_key());
+        assert_eq!(restored.nickname(), id.nickname());
+    }
+
+    #[test]
+    fn opening_with_the_wrong_passphrase_is_rejected() {
+        let id = Identity::generate("alice").unwrap();
+        let sealed = seal_identity(b"right", &id, TEST_KDF).unwrap();
+        assert_eq!(
+            open_identity(b"wrong", &sealed).unwrap_err(),
+            IdentityStoreError::Vault(VaultError::Decrypt)
+        );
+    }
+
+    #[test]
+    fn a_tampered_sealed_identity_is_rejected() {
+        let id = Identity::generate("alice").unwrap();
+        let mut sealed = seal_identity(b"pw", &id, TEST_KDF).unwrap();
+        let last = sealed.len() - 1;
+        sealed[last] ^= 0x01;
+        assert_eq!(
+            open_identity(b"pw", &sealed).unwrap_err(),
+            IdentityStoreError::Vault(VaultError::Decrypt)
+        );
+    }
+
+    #[test]
+    fn the_recovery_phrase_never_appears_in_the_clear_in_a_sealed_identity() {
+        let id = Identity::generate("alice").unwrap();
+        let phrase = id.recovery_phrase();
+        let sealed = seal_identity(b"pw", &id, TEST_KDF).unwrap();
+        assert!(
+            !sealed.windows(phrase.as_str().len()).any(|w| w == phrase.as_str().as_bytes()),
+            "the recovery phrase must not appear in the clear in the sealed blob"
+        );
     }
 }

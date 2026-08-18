@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1766296907;
+  int get rustContentHash => 1720613914;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -84,6 +84,17 @@ abstract class RustLibApi extends BaseApi {
   IdentitySummary crateApiIdentityRestoreIdentity({
     required String recoveryPhrase,
     required String nickname,
+  });
+
+  Uint8List crateApiIdentitySealCurrentIdentity({
+    required List<String> recoveryWords,
+    required String nickname,
+    required String passphrase,
+  });
+
+  IdentitySummary crateApiIdentityUnlockIdentity({
+    required String passphrase,
+    required List<int> sealed,
   });
 }
 
@@ -148,6 +159,68 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         argNames: ["recoveryPhrase", "nickname"],
       );
 
+  @override
+  Uint8List crateApiIdentitySealCurrentIdentity({
+    required List<String> recoveryWords,
+    required String nickname,
+    required String passphrase,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_String(recoveryWords, serializer);
+          sse_encode_String(nickname, serializer);
+          sse_encode_String(passphrase, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 3)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiIdentitySealCurrentIdentityConstMeta,
+        argValues: [recoveryWords, nickname, passphrase],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiIdentitySealCurrentIdentityConstMeta =>
+      const TaskConstMeta(
+        debugName: "seal_current_identity",
+        argNames: ["recoveryWords", "nickname", "passphrase"],
+      );
+
+  @override
+  IdentitySummary crateApiIdentityUnlockIdentity({
+    required String passphrase,
+    required List<int> sealed,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(passphrase, serializer);
+          sse_encode_list_prim_u_8_loose(sealed, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 4)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_identity_summary,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiIdentityUnlockIdentityConstMeta,
+        argValues: [passphrase, sealed],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiIdentityUnlockIdentityConstMeta =>
+      const TaskConstMeta(
+        debugName: "unlock_identity",
+        argNames: ["passphrase", "sealed"],
+      );
+
   @protected
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -171,6 +244,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<String> dco_decode_list_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_String).toList();
+  }
+
+  @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as List<int>;
   }
 
   @protected
@@ -215,6 +294,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       ans_.add(sse_decode_String(deserializer));
     }
     return ans_;
+  }
+
+  @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint8List(len_);
   }
 
   @protected
@@ -266,6 +352,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     for (final item in self) {
       sse_encode_String(item, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_list_prim_u_8_loose(
+    List<int> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putUint8List(
+      self is Uint8List ? self : Uint8List.fromList(self),
+    );
   }
 
   @protected
